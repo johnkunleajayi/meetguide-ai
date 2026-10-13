@@ -1,0 +1,44 @@
+# Dependencies and generated build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# Local configuration and secrets
+*.local
+.env
+.env.*
+!.env.example
+
+# Python caches, test output, and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local caches, scratch files, logs, and coverage
+.npm-cache/
+work/
+coverage/
+*.log
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
