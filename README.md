@@ -1,15 +1,15 @@
-# LiveCue AI
+# MeetGuide AI
 
 A responsive frontend foundation for a real-time conversation copilot.
 
-**Hear it. Understand it. Know what to say.**
+**Your real-time AI meeting assistant.**
 
 ## Local setup
 
 Requires Node.js 22.12+ (or 24 LTS) and npm.
 
 ```powershell
-cd C:\Users\JOHN-KUNLE\OneDrive\Desktop\livecue-ai
+cd C:\Users\JOHN-KUNLE\OneDrive\Desktop\meetguide-ai
 cd frontend
 npm install
 npm run dev
@@ -33,7 +33,7 @@ Frontend files:
 
 - `frontend/src/App.tsx`: landing page composition.
 - `frontend/src/components/ui.tsx`: brand, button links, and section labels.
-- `frontend/src/components/LiveCuePreview.tsx`: static Salesforce interview workspace preview.
+- `frontend/src/components/MeetGuidePreview.tsx`: static Salesforce interview workspace preview.
 - `frontend/src/components/ContextSection.tsx`: illustrative knowledge-to-cue diagram.
 - `frontend/src/hooks/useTheme.ts`: system-aware light/dark mode with a saved preference.
 - `frontend/src/data/workflow.ts`: authored workflow content.

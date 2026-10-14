@@ -8,7 +8,7 @@ export function useTheme() {
     const media = matchMedia("(prefers-color-scheme: dark)");
     const sync = () => {
       try {
-        if (!localStorage.getItem("livecue-theme"))
+        if (!localStorage.getItem("meetguide-theme"))
           setTheme(media.matches ? "dark" : "light");
       } catch {
         setTheme(media.matches ? "dark" : "light");
@@ -26,7 +26,7 @@ export function useTheme() {
       const next = theme === "dark" ? "light" : "dark";
       setTheme(next);
       try {
-        localStorage.setItem("livecue-theme", next);
+        localStorage.setItem("meetguide-theme", next);
       } catch {
         /* Theme remains usable without storage. */
       }

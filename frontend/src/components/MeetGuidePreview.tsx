@@ -16,16 +16,16 @@ const keyPoints = [
   "Validate before deployment",
 ];
 
-export function LiveCuePreview() {
+export function MeetGuidePreview() {
   return (
     <section
       className="workspace"
       id="preview"
-      aria-label="LiveCue workspace, static concept preview"
+      aria-label="MeetGuide workspace, static concept preview"
     >
       <div className="workspace-toolbar">
         <span className="workspace-brand">
-          <AudioLines size={17} aria-hidden="true" /> LiveCue{" "}
+          <AudioLines size={17} aria-hidden="true" /> MeetGuide{" "}
           <span>Workspace</span>
         </span>
         <span className="preview-badge">Concept preview</span>

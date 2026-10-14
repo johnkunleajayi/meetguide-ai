@@ -8,7 +8,7 @@ import {
   Users,
 } from "lucide-react";
 import { Brand, ButtonLink, Eyebrow } from "./components/ui";
-import { LiveCuePreview } from "./components/LiveCuePreview";
+import { MeetGuidePreview } from "./components/MeetGuidePreview";
 import { ContextSection } from "./components/ContextSection";
 import { useTheme } from "./hooks/useTheme";
 import { workflow } from "./data/workflow";
@@ -83,7 +83,7 @@ export default function App() {
               <span>When it matters.</span>
             </h1>
             <p className="hero-description">
-              LiveCue AI listens to permitted conversations, understands what is
+              MeetGuide AI listens to permitted conversations, understands what is
               being asked, and surfaces relevant talking points in real time.
             </p>
             <div className="hero-actions">
@@ -98,7 +98,7 @@ export default function App() {
             </p>
           </div>
           <div className="hero-preview">
-            <LiveCuePreview />
+            <MeetGuidePreview />
             <p className="preview-disclosure">
               Product concept · Sample transcript and cues · No microphone
               connected
@@ -165,7 +165,7 @@ export default function App() {
               <br />
               Available when it matters.
             </h2>
-            <p>Hear it. Understand it. Know what to say.</p>
+            <p>Your real-time AI meeting assistant.</p>
           </div>
           <a className="button button-primary" href="#preview">
             Explore the workspace
@@ -176,7 +176,7 @@ export default function App() {
       <footer className="container">
         <div className="footer-main">
           <Brand />
-          <span>© {new Date().getFullYear()} LiveCue AI</span>
+          <span>© {new Date().getFullYear()} MeetGuide AI</span>
           <a href="#how-it-works">How it works</a>
         </div>
         <p className="footer-disclosure">

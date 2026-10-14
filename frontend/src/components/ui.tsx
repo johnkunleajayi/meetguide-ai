@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export function Brand() {
   return (
-    <a className="brand" href="#" aria-label="LiveCue AI home">
+    <a className="brand" href="#" aria-label="MeetGuide AI home">
       <AudioLines
         className="brand-mark"
         size={25}
@@ -11,7 +11,7 @@ export function Brand() {
         aria-hidden="true"
       />
       <span>
-        LiveCue <span className="brand-ai">AI</span>
+        MeetGuide <span className="brand-ai">AI</span>
       </span>
     </a>
   );
