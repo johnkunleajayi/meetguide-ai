@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal desktop shell; no privileged APIs enabled",
+  "windows": ["main"],
+  "permissions": []
+}

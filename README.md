@@ -1,12 +1,27 @@
 # MeetGuide AI
 
-A responsive frontend foundation for a real-time conversation copilot.
-
 **Your real-time AI meeting assistant.**
 
-## Local setup
+## Architecture
 
-Requires Node.js 22.12+ (or 24 LTS) and npm.
+```text
+meetguide-ai/
+├── frontend/     MeetGuide web application
+├── desktop/      MeetGuide desktop companion
+├── backend/      MeetGuide API (empty placeholder)
+├── .gitignore
+└── README.md
+```
+
+A single Git repository at the project root contains three independent applications:
+
+- `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. Currently only the verified marketing frontend is implemented.
+- `desktop/`: a separate Windows-first Tauri 2 + React + TypeScript + Vite + Tailwind companion for use during meetings. Currently only a minimal shell is implemented: brand, tagline, Ready status, theme toggle, and a disabled Start Session button.
+- `backend/`: reserved for the shared FastAPI + PostgreSQL API for web and desktop. It contains only `.gitkeep`; FastAPI and database code have not been created.
+
+## Web development
+
+Requires Node.js 22.12+ (or Node.js 24 LTS) and npm.
 
 ```powershell
 cd C:\Users\JOHN-KUNLE\OneDrive\Desktop\meetguide-ai
@@ -15,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite (normally http://127.0.0.1:5173).
+Use the URL printed by Vite (normally http://127.0.0.1:5173).
 
 ```powershell
 npm run typecheck
@@ -23,29 +38,47 @@ npm run build
 npm run preview
 ```
 
-## Structure
+The web source and existing visual design are preserved. Web preview conversations and cues are static examples.
 
-- `frontend/`: complete React, TypeScript, Vite, and Tailwind application.
-- `backend/`: empty placeholder; no backend code yet.
-- Root `.gitignore`, `README.md`, and `.git/`: repository-level files.
+## Desktop development
 
-Frontend files:
+Windows native development requires the MSVC Rust toolchain, Microsoft C++ Build Tools with the C++ desktop workload and Windows SDK, and Microsoft Edge WebView2 Runtime. See https://v2.tauri.app/start/prerequisites/.
 
-- `frontend/src/App.tsx`: landing page composition.
-- `frontend/src/components/ui.tsx`: brand, button links, and section labels.
-- `frontend/src/components/MeetGuidePreview.tsx`: static Salesforce interview workspace preview.
-- `frontend/src/components/ContextSection.tsx`: illustrative knowledge-to-cue diagram.
-- `frontend/src/hooks/useTheme.ts`: system-aware light/dark mode with a saved preference.
-- `frontend/src/data/workflow.ts`: authored workflow content.
-- `frontend/src/styles.css`: Tailwind entry, semantic color tokens, reusable visual styles, responsive rules.
-- `frontend/public/favicon.svg`: local vector brand mark.
+```powershell
+cd C:\Users\JOHN-KUNLE\OneDrive\Desktop\meetguide-ai\desktop
+npm install
+npm run typecheck
+npm run build
+npm run tauri dev
+```
 
-React + TypeScript + Vite + Tailwind CSS (Vite plugin). Lucide supplies consistent SVG icons. No external font or image requests are required. Theme initialization runs before React to avoid a theme flash. Theme storage is optional and gracefully falls back when unavailable.
+`npm run dev` runs only the React shell in the browser at http://127.0.0.1:1420. `npm run tauri dev` starts Vite and launches the native Windows window. `npm run build` builds the React shell; `npm run tauri build` additionally builds the native executable and NSIS installer.
 
-## Scope
+### Project-local Rust toolchain
 
-This is a frontend concept only. The workspace, transcript, timer, and cues are static examples. No backend, authentication, database, audio capture, transcription, or AI is implemented. CTAs navigate to sections; there is no signup flow. Sign in is disabled with an explanatory tooltip. The listening status and interview cue are illustrative. No microphone permissions are requested.
+If using the toolchain installed for this checkout rather than a system Rust installation, activate it in the current PowerShell session before running Tauri:
 
-## Visual system
+```powershell
+# Run from desktop/
+$env:CARGO_HOME = (Resolve-Path ..\work\tools\cargo).Path
+$env:RUSTUP_HOME = (Resolve-Path ..\work\tools\rustup).Path
+$env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
+npm run tauri dev
+```
 
-Semantic CSS variables define surfaces, ink, muted text, borders, accents, and shadows for both themes. Tailwind theme tokens establish the sans font, accent, and card radius. The page uses professional sans-serif typography, the specified navy/slate/blue palette, thin borders, restrained corners, a horizontal workflow, and an understated contextual-intelligence diagram. Dark surfaces are intentionally layered in deep navy, primary navy, and surface navy. Green is reserved for the listening indicator. Includes keyboard focus styles, skip navigation, semantic landmarks, labeled theme controls, and reduced-motion support.
+The local toolchain and downloads live under ignored `work/`; they are not committed and will not be present in a fresh clone. On other machines install the documented Windows prerequisites normally.
+
+## Desktop files
+
+- `desktop/src/App.tsx`: minimal shell with no session behavior.
+- `desktop/src/hooks/useTheme.ts`: system-aware light/dark mode with optional stored preference.
+- `desktop/src/styles.css`: navy/slate/blue visual tokens and responsive shell styling.
+- `desktop/src-tauri/`: native window configuration and minimal Rust bootstrap.
+- `desktop/src-tauri/capabilities/default.json`: no privileged API permissions.
+- `desktop/src-tauri/icons/`: branded native application icons.
+
+## Foundation scope
+
+No backend, authentication, API connections, database, session logic, audio capture, microphone access, system audio, transcription, question detection, AI, always-on-top behavior, or global shortcuts are implemented. The desktop Ready label means the shell is available, not that those capabilities are connected.
+
+Both applications use the MeetGuide navy/white/slate/blue identity, keyboard focus styles, readable sans-serif typography, and light/dark mode. Dependencies, builds, Rust targets, generated Tauri schemas, local configuration, caches, logs, IDE files, and toolchains are ignored at the repository root.

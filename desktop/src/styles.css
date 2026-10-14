@@ -1,0 +1,199 @@
+@import "tailwindcss";
+@theme {
+  --font-sans: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+:root {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #060b14;
+  --surface: #0b1220;
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --border: #1e293b;
+  --accent: #3b82f6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+button {
+  font: inherit;
+}
+button:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 4px;
+}
+.desktop-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+}
+.shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: -0.4px;
+}
+.wordmark > svg {
+  color: var(--accent);
+  margin-right: 3px;
+}
+.wordmark > span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  color: var(--ink);
+}
+main {
+  flex: 1;
+  width: min(500px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 65px 0;
+}
+.eyebrow {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  font-weight: 550;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+h1 {
+  font-size: 32px;
+  letter-spacing: -1px;
+  line-height: 1.25;
+  font-weight: 550;
+  margin: 0 0 12px;
+}
+.tagline {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 0;
+}
+.status-panel {
+  margin-top: 34px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 19px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.status-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.ready {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+.session-action {
+  padding: 24px 22px;
+}
+.start-session {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  width: 100%;
+  min-height: 43px;
+  background: #2563eb;
+  color: #ffffff;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: not-allowed;
+}
+.session-action p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+  margin: 13px 0 0;
+  text-align: center;
+}
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 28px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 9px;
+}
+:root[data-theme="dark"] .status-row {
+  background: #111827;
+  border-radius: 12px 12px 0 0;
+}
+@media (max-width: 440px) {
+  .shell-header,
+  footer {
+    padding-inline: 20px;
+  }
+  main {
+    width: calc(100% - 40px);
+    padding-block: 45px;
+  }
+  h1 {
+    font-size: 28px;
+  }
+  .status-row,
+  .session-action {
+    padding-inline: 18px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
