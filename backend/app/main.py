@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.oauth import create_oauth, state_signing_key
 from app.db.session import create_database_engine, create_session_factory
 
 
@@ -24,11 +26,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(title=configuration.app_name, lifespan=lifespan)
     application.state.settings = configuration
+    application.state.oauth = create_oauth(configuration)
+    application.add_middleware(
+        SessionMiddleware,
+        secret_key=state_signing_key(configuration),
+        session_cookie="meetguide_oauth_state",
+        max_age=600,
+        path="/api/auth/google",
+        same_site="lax",
+        https_only=configuration.secure_cookies,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=configuration.cors_origins,
-        allow_credentials=False,
-        allow_methods=["GET"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
     application.include_router(api_router)

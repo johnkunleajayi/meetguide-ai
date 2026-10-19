@@ -1,6 +1,6 @@
 # MeetGuide AI API
 
-Python/FastAPI modular monolith. PostgreSQL with SQLAlchemy 2.x and psycopg is the only supported database. The first domain model is User; no authentication or user API is implemented.
+Python/FastAPI modular monolith. PostgreSQL with SQLAlchemy 2.x and psycopg is the only supported database. User and database-backed Session models support Google OIDC authentication. No other domain features are implemented.
 
 ## Setup (Windows PowerShell)
 
@@ -26,7 +26,7 @@ The defaults match those two development origins. `localhost` and `127.0.0.1` ar
 ## Run
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
 - Health: http://127.0.0.1:8000/api/health
@@ -39,7 +39,7 @@ Expected health response:
 {"status":"ok","service":"MeetGuide AI API"}
 ```
 
-Health is process liveness, not database readiness. Creating the engine does not open a PostgreSQL connection. Startup, health, and Swagger therefore work without a live database, provided configuration is valid. The engine is disposed during shutdown. CORS allows only the configured web and desktop origins, GET requests, and Content-Type; credentials are disabled because authentication does not exist yet.
+Health is process liveness, not database readiness. Creating the engine does not open a PostgreSQL connection. Startup, health, and Swagger therefore work without a live database, provided configuration is valid. The engine is disposed during shutdown. CORS allows credentials only for the configured web and desktop origins, GET/POST requests, and Content-Type. Browser fetch calls must use credentials: "include". Logout requires an exact trusted Origin header.
 
 To verify liveness without a database or `.env`, you can set `DATABASE_URL=postgresql+psycopg://127.0.0.1:5432/meetguide` in the current shell. This credential-free URL is only for liveness checks; it does not demonstrate a working database connection.
 
@@ -54,7 +54,7 @@ To verify liveness without a database or `.env`, you can set `DATABASE_URL=postg
 .\.venv\Scripts\python.exe -m alembic upgrade head --sql
 ```
 
-Tests provide isolated configuration, block SQLAlchemy connections for startup/health checks, and require no PostgreSQL server. Offline Alembic commands require a valid database URL but do not connect. `heads` now reports `0001_create_users`. This migration is prepared for manual review and has not been applied by this milestone.
+Tests provide isolated configuration, block SQLAlchemy connections for startup/health checks, and require no PostgreSQL server. Offline Alembic commands require a valid database URL but do not connect. `heads` now reports `0002_sessions`, which follows `0001_create_users`. The sessions migration is prepared for manual review; this milestone does not apply it or connect to Neon.
 
 ## Database and migrations
 
@@ -68,19 +68,19 @@ A local or reachable PostgreSQL server and a provisioned database/role are prere
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-The first migration, `0001_create_users`, creates only the users table and its unique email index. Do not apply it until it has been reviewed; this milestone does not run online migrations. Future model modules should import the shared `Base` and register in `app/models/__init__.py` so Alembic sees their metadata. Future API modules register their routers in `app/api/router.py`. Routes that need a database can use `Depends(get_db)` from `app/db/session.py`; they own commit/rollback decisions, while the dependency closes the session.
+The existing `0001_create_users` migration creates users. The new `0002_sessions` migration creates database-backed login sessions. Review and apply it manually before testing real Google login. This implementation does not run online migrations. Future model modules should import the shared `Base` and register in `app/models/__init__.py` so Alembic sees their metadata. Future API modules register their routers in `app/api/router.py`. Routes that need a database can use `Depends(get_db)` from `app/db/session.py`; they own commit/rollback decisions, while the dependency closes the session.
 
 ## Structure
 
-- `app/api/`: API router and health endpoint/response schema.
-- `app/core/config.py`: validated Pydantic Settings.
-- `app/db/`: PostgreSQL engine, session management, declarative base.
-- `app/models/`: User model and model registry imported by Alembic.
+- `app/api/`: health and authentication endpoints/response schemas.
+- `app/core/`: validated settings, Authlib client setup, session-token and authentication logic.
+- `app/db/`: PostgreSQL engine, database session dependency, declarative base, and authentication persistence.
+- `app/models/`: User/Session models and registry imported by Alembic.
 - `app/main.py`: application factory, lifecycle, CORS.
-- `alembic/`: migration environment/template and first, unapplied users migration.
+- `alembic/`: migration infrastructure, existing users revision, and new unapplied sessions revision.
 - `tests/`: startup, liveness, Swagger, CORS, configuration, User metadata, and offline migration tests.
 
-No authentication, user API, audio, transcription, AI providers, key storage, sessions, documents, embeddings, vectors, WebSockets, or payments are implemented. `.env`, virtual environments, and caches are ignored; `.env.example` contains placeholders only.
+Only Google authentication, current-user retrieval, and database-backed login sessions are implemented. No passwords, general user API, audio, transcription, AI providers, API-key storage, documents, embeddings, vectors, WebSockets, or payments are implemented. `.env`, virtual environments, and caches are ignored; `.env.example` contains placeholders only.
 
 ## User model milestone
 
@@ -89,3 +89,30 @@ No authentication, user API, audio, transcription, AI providers, key storage, se
 Both timestamps are non-null `TIMESTAMP WITH TIME ZONE` columns with database `now()` defaults. SQLAlchemy emits `updated_at = now()` for updates that do not explicitly supply a timestamp; this is not a database trigger, so direct SQL writers must manage updates themselves.
 
 `tests/test_user_migration.py` renders the migration through an offline PostgreSQL migration context and compares its complete table/index DDL with model metadata. It does not load `.env`, run Alembic's online environment, connect to a database, or apply DDL.
+
+## Google authentication and sessions
+
+Endpoints:
+
+- `GET /api/auth/google/login`: starts the Google authorization-code flow with state, nonce, and PKCE S256 managed by Authlib.
+- `GET /api/auth/google/callback`: validates state and the signed identity token (issuer, audience, expiry, nonce), requires a verified email, normalizes it with `strip().lower()`, creates/updates the User, creates a session, and redirects to `FRONTEND_ORIGIN`.
+- `GET /api/auth/me`: returns id, email, name, avatar_url, created_at, and updated_at; returns 401 for missing, revoked, invalid, or expired sessions.
+- `POST /api/auth/logout`: deletes the current session and clears its cookie. Include `Origin` matching either configured client. Repeating logout is safe.
+
+Google client configuration is server-only: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`. The configured callback must exactly match the Google Web OAuth client's redirect URI. No real values are included in this repository. Credentials and Google access/identity tokens are never returned by these endpoints or persisted in session rows/cookies.
+
+For loopback development, the existing settings work with the frontend/API on 127.0.0.1 at their configured ports. Do not mix localhost and 127.0.0.1. Real credentialed client calls must be same-site for SameSite=Lax cookies; neither client is changed in this milestone.
+
+Session security:
+
+- The `meetguide_session` cookie holds a random 256-bit opaque token. PostgreSQL stores only its SHA-256 hash; no password-style hashing is needed for a high-entropy random token.
+- Cookies are HttpOnly, SameSite=Lax, host-only, and Path=/. Session lifetime defaults to seven days and is configurable with `SESSION_TTL_SECONDS` (60 seconds to 30 days). Expiry is enforced by the database lookup as well as cookie Max-Age.
+- Successful sign-in rotates the browser's previous session. Logout removes the row immediately. Missing profile claims do not erase existing name/avatar data; new avatar URLs must use HTTPS.
+- Authentication responses use Cache-Control: no-store. Provider/database errors return generic messages. The documented Uvicorn command disables access logs to avoid logging OAuth callback query parameters.
+- A separate signed, HttpOnly `meetguide_oauth_state` cookie is limited to the Google login/callback path and ten minutes. It contains only handshake data, never Google credentials or login tokens. It is cleared after callback handling.
+- In local development, `AUTH_STATE_SECRET` may be omitted; an ephemeral process-local signing key is generated. Restarting the server invalidates pending login handshakes, not database-backed login sessions. Use a stable random `AUTH_STATE_SECRET` of at least 32 characters for multiple workers, and always in production.
+- Production defaults to Secure cookies, rejects explicitly disabling Secure, and requires an HTTPS callback and stable state-signing key when Google login is configured. `SESSION_COOKIE_SECURE=false` is accepted only for loopback development/testing. Production still requires normal HTTPS deployment.
+
+Users are matched by normalized, verified Google email; no separate Google-account linking or password authentication is introduced. The existing users table must not contain ambiguous duplicate case variants of an email. Expired session rows stop authenticating immediately; scheduled row cleanup is not implemented.
+
+Tests mock Google discovery/token/JWKS HTTP requests, generate disposable test RSA keys, and exercise actual Authlib claim/signature checks. Authentication persistence uses an in-memory test double (not a database fallback); SQLAlchemy PostgreSQL query behavior and migration DDL are tested separately with mocks/offline compilation. Tests never read the real .env or connect to Neon. Live database/authentication integration is pending manual application of `0002_sessions` and a manual Google flow.

@@ -39,7 +39,7 @@ def test_allowed_client_origins(client: TestClient, origin: str) -> None:
     )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == origin
-    assert "access-control-allow-credentials" not in response.headers
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_unconfigured_origin_rejected(client: TestClient) -> None:

@@ -10,7 +10,7 @@ from app.models import User
 def test_user_registered_with_shared_metadata() -> None:
     assert User.__table__.metadata is Base.metadata
     assert Base.metadata.tables["users"] is User.__table__
-    assert set(Base.metadata.tables) == {"users"}
+    assert set(Base.metadata.tables) == {"users", "sessions"}
     assert set(User.__table__.columns.keys()) == {
         "id",
         "email",

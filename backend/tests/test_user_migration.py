@@ -26,9 +26,9 @@ def normalize_sql(sql: str) -> str:
     return " ".join(sql.split()).rstrip(";")
 
 
-def test_first_migration_is_the_only_head() -> None:
+def test_first_migration_remains_root() -> None:
     scripts = migration_script()
-    assert scripts.get_heads() == [REVISION]
+    assert scripts.get_heads() == ["0002_sessions"]
     revision = scripts.get_revision(REVISION)
     assert revision.down_revision is None
     assert revision.dependencies is None

@@ -11,7 +11,19 @@ from app.main import create_app
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setitem(Settings.model_config, "env_file", None)
-    for name in ("APP_NAME", "APP_ENV", "DATABASE_URL", "FRONTEND_ORIGIN", "DESKTOP_ORIGIN"):
+    for name in (
+        "APP_NAME",
+        "APP_ENV",
+        "DATABASE_URL",
+        "FRONTEND_ORIGIN",
+        "DESKTOP_ORIGIN",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REDIRECT_URI",
+        "AUTH_STATE_SECRET",
+        "SESSION_COOKIE_SECURE",
+        "SESSION_TTL_SECONDS",
+    ):
         monkeypatch.delenv(name, raising=False)
         monkeypatch.delenv(name.lower(), raising=False)
     get_settings.cache_clear()

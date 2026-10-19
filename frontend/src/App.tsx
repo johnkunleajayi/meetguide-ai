@@ -10,6 +10,7 @@ import {
 import { Brand, ButtonLink, Eyebrow } from "./components/ui";
 import { MeetGuidePreview } from "./components/MeetGuidePreview";
 import { ContextSection } from "./components/ContextSection";
+import { AuthControls } from "./components/AuthControls";
 import { useTheme } from "./hooks/useTheme";
 import { workflow } from "./data/workflow";
 
@@ -60,16 +61,7 @@ export default function App() {
             >
               {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <button
-              className="sign-in"
-              disabled
-              title="Sign in is not available in this frontend preview."
-            >
-              Sign in
-            </button>
-            <a className="button button-primary nav-cta" href="#preview">
-              Get started
-            </a>
+            <AuthControls />
           </div>
         </div>
       </header>
@@ -180,7 +172,7 @@ export default function App() {
           <a href="#how-it-works">How it works</a>
         </div>
         <p className="footer-disclosure">
-          Frontend concept preview. Live sessions, authentication, and AI
+          Frontend concept preview. Live sessions and AI
           assistance are not available yet.
         </p>
       </footer>

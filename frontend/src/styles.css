@@ -1230,3 +1230,22 @@ footer {
     animation: none !important;
   }
 }
+
+/* Session controls share the existing navigation typography and palette. */
+.auth-controls { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.auth-action { cursor: pointer; white-space: nowrap; }
+.auth-action:disabled { cursor: wait; opacity: .65; }
+.auth-status { font-size: 11px; color: var(--muted); }
+.auth-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.auth-initial { display: grid; place-items: center; background: var(--surface); color: var(--ink); border: 1px solid var(--line); font-size: 12px; }
+.auth-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink); }
+.auth-account { position: relative; }
+.auth-feedback { display: block; position: absolute; right: 0; top: calc(100% + 8px); width: 240px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); z-index: 5; }
+@media (max-width: 600px) {
+  .auth-controls { gap: 9px; }
+  .auth-name { max-width: 76px; font-size: 11px; }
+  .auth-avatar { width: 24px; height: 24px; }
+  .auth-error { flex-wrap: wrap; max-width: 140px; gap: 4px 8px; }
+  .site-header:has(.auth-account) { column-gap: 12px; row-gap: 12px; }
+  .site-header:has(.auth-account) .main-nav { margin-top: 5px; }
+}
