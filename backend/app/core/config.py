@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://127.0.0.1:5173"
     desktop_origin: str = "http://127.0.0.1:1420"
 
+    transcription_provider: Literal["deepgram"] = "deepgram"
+    deepgram_api_key: SecretStr | None = Field(default=None, repr=False)
+    transcription_model: str = Field(default="nova-3", min_length=1, max_length=80)
+    transcription_language: str = Field(default="en-US", min_length=1, max_length=32)
+
     google_client_id: str | None = Field(default=None, repr=False)
     google_client_secret: SecretStr | None = Field(default=None, repr=False)
     google_redirect_uri: str = "http://127.0.0.1:8000/api/auth/google/callback"

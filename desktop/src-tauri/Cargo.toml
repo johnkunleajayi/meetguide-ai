@@ -26,6 +26,12 @@ url = "2"
 webbrowser = "1"
 zeroize = "1"
 
+# Session-local streaming audio transport and conversion (no provider credentials here).
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", features = ["sink"] }
+rubato = "0.16"
+
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.26"
 

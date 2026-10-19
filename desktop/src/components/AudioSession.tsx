@@ -1,3 +1,4 @@
+import { TranscriptPanel } from "./TranscriptPanel";
 import { useCallback, useEffect, useState } from "react";
 import { useAudioCapture } from "../hooks/useAudioCapture";
 import { listAudioDevices, meterPercent, type AudioDevice, type AudioDevices, type AudioMode, type StreamMeter } from "../lib/audio";
@@ -56,7 +57,7 @@ export function AudioSession({ authenticated, onBusyChange }: { authenticated: b
   const canStart = authenticated && !locked && !refreshing && !missingSystem && !missingMicrophone;
   const label = pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : listening ? "Listening" : status.state === "error" ? "Capture stopped" : "Ready";
 
-  return <section className="status-panel" aria-label="Desktop status">
+  return <><section className="status-panel" aria-label="Desktop status">
     <div className="status-row">
       <span className="status-label">Application status</span>
       <span className="ready" role="status"><span className={`status-dot${listening ? " is-listening" : ""}`} aria-hidden="true" />{label}</span>
@@ -79,7 +80,7 @@ export function AudioSession({ authenticated, onBusyChange }: { authenticated: b
       {!authenticated && <p>Sign in to start a session.</p>}
       {authenticated && !locked && !refreshing && (missingSystem || missingMicrophone) && <p role="alert">{missingSystem ? "No selected/default playback device is available. " : ""}{missingMicrophone ? "No selected/default microphone is available. " : ""}Check Windows Sound settings, then refresh devices.</p>}
       {(error || deviceError) && <p role="alert">{error || deviceError}</p>}
-      <p className="audio-privacy">Audio stays on this computer. Nothing is recorded or uploaded.</p>
+      <p className="audio-privacy">Audio is streamed for live transcription. MeetGuide does not save audio or transcripts.</p>
     </div>
-  </section>;
+  </section><TranscriptPanel authenticated={authenticated} /></>;
 }

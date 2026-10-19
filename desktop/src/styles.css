@@ -229,3 +229,20 @@ footer {
 .audio-level meter::-webkit-meter-optimum-value { background: var(--accent); border-radius: 5px; }
 .session-action .audio-device-name { margin: 0; text-align: left; font-size: 9px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .status-dot.is-listening { box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 15%, transparent); }
+
+.transcript-panel { margin-top: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 20px 22px; }
+.transcript-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transcript-heading h2 { margin: 0; font-size: 13px; font-weight: 550; }
+.transcript-heading > span, .transcript-entry-label > span { font-size: 9px; color: var(--muted); }
+.transcript-connections { display: grid; gap: 8px; margin-top: 14px; font-size: 10px; color: var(--muted); }
+.transcript-message { margin: 5px 0 0; line-height: 1.6; }
+.transcript-scroll { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; margin-top: 14px; }
+.transcript-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.transcript-entry { padding: 13px 0; border-bottom: 1px solid var(--border); }
+.transcript-entry:last-child { border: 0; }
+.transcript-entry-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.transcript-entry-label strong { font-size: 10px; font-weight: 550; color: var(--accent); }
+.transcript-entry p { margin: 7px 0 0; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; white-space: pre-wrap; }
+.transcript-entry.is-partial p { color: var(--muted); }
+.transcript-placeholder, .transcript-footnote { font-size: 10px; color: var(--muted); line-height: 1.7; }
+.transcript-footnote { margin: 13px 0 0; }

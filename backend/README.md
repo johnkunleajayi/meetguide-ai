@@ -80,7 +80,7 @@ The existing `0001_create_users` migration creates users. The new `0002_sessions
 - `alembic/`: migration infrastructure, existing users revision, and new unapplied sessions revision.
 - `tests/`: startup, liveness, Swagger, CORS, configuration, User metadata, and offline migration tests.
 
-Only Google authentication, current-user retrieval, and database-backed login sessions are implemented. No passwords, general user API, audio, transcription, AI providers, API-key storage, documents, embeddings, vectors, WebSockets, or payments are implemented. `.env`, virtual environments, and caches are ignored; `.env.example` contains placeholders only.
+Google authentication, current-user retrieval, database-backed login sessions, and an authenticated streaming transcription relay are implemented. No passwords, general user API, AI assistance, user API-key storage, documents, embeddings, vectors, or payments are implemented. `.env`, virtual environments, and caches are ignored; `.env.example` contains placeholders only.
 
 ## User model milestone
 
@@ -130,3 +130,15 @@ After Google validation, the desktop branch upserts the same User and creates a 
 Google secrets remain server-only. There is no JWT or second user/session system. Native calls do not use CORS or browser cookies; no CORS expansion is needed. Keep HTTPS outside loopback development, a stable AUTH_STATE_SECRET across server workers, and access/body/header logs disabled for authentication. Continue using the existing backend Google Web OAuth client/redirect URI. Restart the API after updating code; do not apply any migration for this change.
 
 Desktop session tokens are kept by Rust in Windows Credential Manager and never exposed to React. See `../desktop/README.md` for setup, security boundaries, and manual login/restart/logout checks.
+
+## Streaming transcription relay
+
+`WS /api/transcription/stream?source=system|microphone` accepts only an explicit native `Authorization: Bearer <MeetGuide session>` header, never a browser cookie/query token. Browser Origin requests are rejected. After session validation, the relay opens the configured provider and sends `ready`. Clients then send bounded binary mono PCM16 at 16 kHz. Normalized `transcript` events contain `source`, `segment` (milliseconds relative to this connection), `text`, and `final`; partials may replace the same segment until final. `{"type":"finish"}` flushes final text, followed by `done`.
+
+The provider boundary is `app/transcription/provider.py`; the initial adapter is `deepgram.py` (Nova-3 Listen v1 with interim results, endpointing and `mip_opt_out=true`). `api.py` owns native authentication, framing, periodic session revalidation, cancellation and cleanup. The adapter owns provider wire details. Add a future adapter/factory entry without changing capture or UI. No business tables/migrations are added.
+
+Set a real **server-only** `DEEPGRAM_API_KEY` in the existing ignored environment configuration; do not overwrite Google/Neon settings. Defaults: `TRANSCRIPTION_PROVIDER=deepgram`, `TRANSCRIPTION_MODEL=nova-3`, `TRANSCRIPTION_LANGUAGE=en-US`. See `../desktop/README.md` for the exact setup/run/test commands. Provider credentials are not returned to clients. Missing configuration returns an actionable, non-retryable error; transient failures permit native reconnection.
+
+Use the installed `websockets` transport with Uvicorn's `--ws websockets-sansio --ws-max-size 8192 --ws-max-queue 8 --no-access-log --log-level warning`. Reverse proxies must support long-lived authenticated WebSockets; use TLS outside loopback development. Do not enable frame/body/header debug logs. Provider wire logging is explicitly disabled. Audio/transcripts exist only in bounded process/network buffers and are never written to files or PostgreSQL. The provider necessarily processes audio; request opt-out and retention behavior must be verified against the provider account/policy.
+
+The relay uses fresh short-lived DB sessions only for authorization and revalidation (every 60 seconds), not long-running meeting transactions. Provider sockets use bounded buffers, keepalives and timeouts; stop/disconnect cancels sender/receiver tasks and closes upstream resources. Tests mock Google, database access and transcription providers. Synthetic native relay tests and the real local Uvicorn protocol smoke check require no cloud credentials and do not prove live provider accuracy.

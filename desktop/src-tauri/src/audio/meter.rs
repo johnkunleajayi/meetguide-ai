@@ -74,6 +74,7 @@ pub enum CaptureState {
 
 /// A borrowed interleaved f32 PCM packet, valid only during synchronous consumption.
 /// A future transcription consumer belongs here, with an explicitly bounded queue.
+#[derive(Clone, Copy)]
 pub struct AudioFrame<'a> {
     pub bytes: &'a [u8],
     pub frames: u32,

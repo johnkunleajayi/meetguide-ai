@@ -134,10 +134,15 @@ pub async fn auth_logout(
 ) -> Result<(), String> {
     let service = service.inner().clone();
     let audio = audio.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || audio.stop_with(|| service.logout()))
-        .await
-        .map_err(|_| "Authentication task failed. Please restart MeetGuide.".to_owned())?
-        .map_err(str::to_owned)
+    tauri::async_runtime::spawn_blocking(move || {
+        audio.stop_with(|| {
+            audio.clear_transcript();
+            service.logout()
+        })
+    })
+    .await
+    .map_err(|_| "Authentication task failed. Please restart MeetGuide.".to_owned())?
+    .map_err(str::to_owned)
 }
 
 #[tauri::command]

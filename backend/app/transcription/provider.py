@@ -1,0 +1,40 @@
+"""Provider-neutral streaming speech-to-text contract. No storage or logging."""
+
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True, repr=False)
+class TranscriptEvent:
+    segment: int
+    text: str
+    final: bool
+
+
+class ProviderError(Exception):
+    """Safe, actionable error; never include vendor responses or credentials."""
+
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+class StreamingConnection(Protocol):
+    async def send_audio(self, pcm: bytes) -> None: ...
+    async def receive(self) -> TranscriptEvent | None: ...
+    async def keepalive(self) -> None: ...
+    async def finish(self) -> None: ...
+    async def close(self) -> None: ...
+
+
+class StreamingProvider(Protocol):
+    async def connect(self) -> StreamingConnection: ...
+
+
+def get_provider(settings) -> StreamingProvider:
+    # Add future adapters here; transport and clients consume only normalized events.
+    from app.transcription.deepgram import DeepgramProvider
+
+    if settings.transcription_provider == "deepgram" and settings.deepgram_api_key:
+        return DeepgramProvider(settings)
+    raise ProviderError("Set DEEPGRAM_API_KEY on the backend and restart the API.", False)

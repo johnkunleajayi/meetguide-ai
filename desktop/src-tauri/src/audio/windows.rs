@@ -81,6 +81,7 @@ struct CaptureStream {
     capacity: u32,
     meter: StreamMeter,
     window: LevelWindow,
+    transcript: Option<crate::transcription::AudioPort>,
 }
 
 impl CaptureStream {
@@ -159,6 +160,7 @@ impl CaptureStream {
                 ..Default::default()
             },
             window: LevelWindow::default(),
+            transcript: None,
         };
         stream.client.start_stream().map_err(|_| startup_error)?;
         Ok(stream)
@@ -198,16 +200,17 @@ impl CaptureStream {
                 // format is interleaved f32 PCM and frames are bounded above.
                 unsafe { std::slice::from_raw_parts(data, length) }
             };
-            self.window.consume(
-                AudioFrame {
-                    bytes,
-                    frames,
-                    channels: self.meter.channels,
-                    silent,
-                    discontinuity: flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
-                },
-                &mut self.meter,
-            );
+            let frame = AudioFrame {
+                bytes,
+                frames,
+                channels: self.meter.channels,
+                silent,
+                discontinuity: flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
+            };
+            self.window.consume(frame, &mut self.meter);
+            if let Some(port) = &mut self.transcript {
+                port.feed(frame);
+            }
             packet.release().map_err(|_| self.capture_error())?;
         }
         Ok(())
@@ -270,6 +273,8 @@ pub fn run(
     stop: Arc<AtomicBool>,
     snapshot: Arc<Mutex<CaptureStatus>>,
     ready: SyncSender<Result<(), &'static str>>,
+    relay: Option<crate::transcription::RelayConfig>,
+    transcript: Arc<Mutex<crate::transcription::TranscriptStore>>,
 ) -> Result<(), &'static str> {
     let _com = Apartment::new()?;
     let enumerator =
@@ -289,6 +294,50 @@ pub fn run(
             Direction::Capture,
             &options.microphone_device_id,
         )?)
+    } else {
+        None
+    };
+    let sources = [
+        system
+            .as_ref()
+            .map(|_| crate::transcription::Source::System),
+        microphone
+            .as_ref()
+            .map(|_| crate::transcription::Source::Microphone),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let _transcription = if let Some(config) = relay {
+        match crate::transcription::Session::new(config, &sources, transcript.clone()) {
+            Ok(session) => {
+                for (stream, source) in [
+                    (&mut system, crate::transcription::Source::System),
+                    (&mut microphone, crate::transcription::Source::Microphone),
+                ] {
+                    if let Some(stream) = stream {
+                        match session.port(source, stream.meter.sample_rate, stream.meter.channels)
+                        {
+                            Ok(port) => stream.transcript = Some(port),
+                            Err(message) => {
+                                if let Ok(mut store) = transcript.lock() {
+                                    store.state(source, "error", Some(message), 0);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(session)
+            }
+            Err(message) => {
+                if let Ok(mut store) = transcript.lock() {
+                    for source in &sources {
+                        store.state(*source, "error", Some(message), 0);
+                    }
+                }
+                None
+            }
+        }
     } else {
         None
     };
@@ -324,6 +373,11 @@ pub fn run(
             publish = Instant::now();
         }
         std::thread::sleep(Duration::from_millis(10));
+    }
+    for stream in [&mut system, &mut microphone].into_iter().flatten() {
+        if let Some(port) = &mut stream.transcript {
+            port.finish();
+        }
     }
     Ok(())
 }

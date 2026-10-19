@@ -1,4 +1,5 @@
 mod audio;
+mod transcription;
 use tauri::Manager;
 mod api;
 mod auth;
@@ -23,7 +24,8 @@ pub fn run() {
             audio::audio_devices,
             audio::audio_start,
             audio::audio_status,
-            audio::audio_stop
+            audio::audio_stop,
+            transcription::transcription_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running MeetGuide AI");

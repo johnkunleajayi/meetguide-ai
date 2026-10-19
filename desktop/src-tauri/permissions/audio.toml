@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-local-audio"
 description = "Allow the local main window to list, start, inspect levels, and stop Windows audio capture. No PCM is exposed."
-commands.allow = ["audio_devices", "audio_start", "audio_status", "audio_stop"]
+commands.allow = ["audio_devices", "audio_start", "audio_status", "audio_stop", "transcription_status"]

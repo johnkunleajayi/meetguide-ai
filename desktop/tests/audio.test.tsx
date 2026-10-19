@@ -1,3 +1,4 @@
+vi.mock("../src/lib/transcription", () => ({ readTranscript: vi.fn(async () => null), sourceLabel: (source: string) => source === "system" ? "Them" : "You" }));
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AudioSession } from "../src/components/AudioSession";

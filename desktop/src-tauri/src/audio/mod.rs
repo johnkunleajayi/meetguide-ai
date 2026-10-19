@@ -1,4 +1,4 @@
-mod meter;
+pub(crate) mod meter;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -19,12 +19,19 @@ struct Worker {
 }
 #[derive(Default)]
 pub struct AudioService {
+    pub(crate) transcript: Arc<Mutex<crate::transcription::TranscriptStore>>,
     operation: Mutex<()>,
     worker: Mutex<Option<Worker>>,
     snapshot: Arc<Mutex<CaptureStatus>>,
 }
 
 impl AudioService {
+    pub fn clear_transcript(&self) {
+        if let Ok(mut store) = self.transcript.lock() {
+            store.reset(&[]);
+        }
+    }
+
     pub fn status(&self) -> Result<CaptureStatus, &'static str> {
         self.snapshot
             .lock()
@@ -35,13 +42,13 @@ impl AudioService {
     fn start(
         &self,
         options: CaptureOptions,
-        authorize: impl FnOnce() -> Result<(), &'static str>,
+        authorize: impl FnOnce() -> Result<Option<crate::transcription::RelayConfig>, &'static str>,
     ) -> Result<CaptureStatus, &'static str> {
         let _operation = self
             .operation
             .lock()
             .map_err(|_| "Audio control is unavailable.")?;
-        authorize()?;
+        let relay = authorize()?;
         let mut worker = self
             .worker
             .lock()
@@ -52,6 +59,24 @@ impl AudioService {
         if let Some(previous) = worker.take() {
             let _ = previous.handle.join();
         }
+        let sources = [
+            options
+                .mode
+                .system()
+                .then_some(crate::transcription::Source::System),
+            options
+                .mode
+                .microphone()
+                .then_some(crate::transcription::Source::Microphone),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        let transcript = self.transcript.clone();
+        transcript
+            .lock()
+            .map_err(|_| "Transcript state is unavailable.")?
+            .reset(if relay.is_some() { &sources } else { &[] });
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
         let snapshot = self.snapshot.clone();
@@ -66,7 +91,14 @@ impl AudioService {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     #[cfg(target_os = "windows")]
                     {
-                        windows::run(options, thread_stop, snapshot.clone(), ready.clone())
+                        windows::run(
+                            options,
+                            thread_stop,
+                            snapshot.clone(),
+                            ready.clone(),
+                            relay,
+                            transcript.clone(),
+                        )
                     }
                     #[cfg(not(target_os = "windows"))]
                     {
@@ -78,6 +110,14 @@ impl AudioService {
                     "The audio worker stopped unexpectedly. Restart the session.",
                 ));
                 if let Err(message) = result {
+                    if let Ok(mut store) = transcript.lock() {
+                        for source in [
+                            crate::transcription::Source::System,
+                            crate::transcription::Source::Microphone,
+                        ] {
+                            store.state(source, "error", Some(message), 0);
+                        }
+                    }
                     if let Ok(mut state) = snapshot.lock() {
                         *state = CaptureStatus {
                             state: CaptureState::Error,
@@ -188,7 +228,11 @@ pub async fn audio_start(
             if auth.restore()?.is_none() {
                 return Err("Sign in to MeetGuide before starting audio capture.");
             }
-            Ok(())
+            let token = crate::vault::load()?.ok_or("Sign in before starting transcription.")?;
+            Ok(Some(crate::transcription::RelayConfig {
+                url: crate::api::Api::new()?.transcription_url(),
+                token,
+            }))
         })
     })
     .await
@@ -286,7 +330,7 @@ mod tests {
                         system_device_id: None,
                         microphone_device_id: None,
                     },
-                    || Ok(()),
+                    || Ok(None),
                 )
                 .expect("Audio startup failed");
             assert!(status.state == CaptureState::Listening);

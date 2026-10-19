@@ -23,6 +23,10 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "AUTH_STATE_SECRET",
         "SESSION_COOKIE_SECURE",
         "SESSION_TTL_SECONDS",
+        "TRANSCRIPTION_PROVIDER",
+        "DEEPGRAM_API_KEY",
+        "TRANSCRIPTION_MODEL",
+        "TRANSCRIPTION_LANGUAGE",
     ):
         monkeypatch.delenv(name, raising=False)
         monkeypatch.delenv(name.lower(), raising=False)

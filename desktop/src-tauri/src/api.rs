@@ -38,6 +38,13 @@ impl Api {
         Ok(Self { base, client })
     }
 
+    pub fn transcription_url(&self) -> String {
+        let mut url = self.endpoint("/api/transcription/stream");
+        let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
+        url.set_scheme(scheme).expect("validated backend scheme");
+        url.to_string()
+    }
+
     fn endpoint(&self, path: &str) -> Url {
         self.base.join(path).expect("fixed backend path")
     }
