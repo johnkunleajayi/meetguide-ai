@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { TranscriptPanel } from "../src/components/TranscriptPanel";
 import { readTranscript, type TranscriptSnapshot } from "../src/lib/transcription";
 vi.mock("../src/lib/transcription", async (original) => ({ ...await original<typeof import("../src/lib/transcription")>(), readTranscript: vi.fn() }));
-const partial: TranscriptSnapshot = { version: 1, sessionId: 1, entries: [{ id: 1, source: "system", text: "Interim words", finalText: false, interrupted: false, offsetMs: 0 }], streams: [{ source: "system", state: "streaming", message: null, droppedChunks: 0 }], trimmed: 0 };
+const partial: TranscriptSnapshot = { version: 1, sessionId: 1, entries: [{ id: 1, source: "system", text: "Interim words", finalText: false, interrupted: false, offsetMs: 0 }], streams: [{ source: "system", state: "streaming", message: null, droppedChunks: 0 }], trimmed: 0, understanding: { active: true, turns: [], events: [], trimmedTurns: 0 } };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(readTranscript).mockResolvedValue(null); });
 afterEach(cleanup);
 it("does not poll or expose transcript content when signed out", () => {
@@ -53,4 +53,27 @@ it("a new capture session replaces the previous transcript", async () => {
   vi.mocked(readTranscript).mockResolvedValueOnce(partial).mockResolvedValue({ ...partial, version: 3, sessionId: 2, entries: [] });
   render(<TranscriptPanel authenticated />); await screen.findByText("Interim words");
   await waitFor(() => expect(screen.queryByText("Interim words")).toBeNull());
+});
+
+const detected: TranscriptSnapshot = { ...partial, understanding: { active: true, turns: [], trimmedTurns: 0, events: [{ id: 1, type: "question", speaker: "them", text: "How did you handle the migration?", confidence: 0.94, turnId: 1, detectedAtMs: 1200, context: [] }] } };
+it("shows a small question indication and clears it on logout", async () => {
+  vi.mocked(readTranscript).mockResolvedValue(detected);
+  const { rerender } = render(<TranscriptPanel authenticated />);
+  expect((await screen.findByRole("status")).textContent).toContain("Question detected");
+  expect(screen.getByText("How did you handle the migration?")).toBeTruthy();
+  rerender(<TranscriptPanel authenticated={false} />);
+  expect(screen.queryByRole("status")).toBeNull();
+});
+it("clears detected questions on a new session", async () => {
+  vi.mocked(readTranscript).mockResolvedValueOnce(detected).mockResolvedValue({ ...partial, sessionId: 2, version: 3 });
+  render(<TranscriptPanel authenticated />); await screen.findByRole("status");
+  await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+});
+it("does not expose reserved opportunity events or questions from You", async () => {
+  vi.mocked(readTranscript).mockResolvedValue({ ...detected, understanding: { ...detected.understanding, events: [
+    { ...detected.understanding.events[0], type: "important_point" },
+    { ...detected.understanding.events[0], id: 2, speaker: "you" },
+  ] } });
+  render(<TranscriptPanel authenticated />); await screen.findByText("Interim words");
+  expect(screen.queryByRole("status")).toBeNull();
 });

@@ -38,6 +38,7 @@ export function TranscriptPanel({ authenticated }: { authenticated: boolean }) {
     if (follow.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [snapshot]);
 
+  const question = snapshot?.understanding.events.filter((event) => event.type === "question" && event.speaker === "them").at(-1);
   return <section className="transcript-panel" aria-label="Live transcript">
     <div className="transcript-heading"><h2>Live transcript</h2><span>Session only</span></div>
     <div className="transcript-connections" aria-live="polite">
@@ -48,6 +49,7 @@ export function TranscriptPanel({ authenticated }: { authenticated: boolean }) {
       </div>)}
       {error && <p role="alert">Unable to read transcription status. Check the desktop connection.</p>}
     </div>
+    {question && <aside className="question-indicator" role="status"><strong>Question detected</strong><p>{question.text}</p></aside>}
     <div className="transcript-scroll" ref={scroller} tabIndex={0} aria-label="Conversation transcript" onScroll={() => {
       const element = scroller.current;
       if (!element) return;

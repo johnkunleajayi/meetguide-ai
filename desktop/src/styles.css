@@ -246,3 +246,6 @@ footer {
 .transcript-entry.is-partial p { color: var(--muted); }
 .transcript-placeholder, .transcript-footnote { font-size: 10px; color: var(--muted); line-height: 1.7; }
 .transcript-footnote { margin: 13px 0 0; }
+.question-indicator { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 7px; }
+.question-indicator strong { font-size: 10px; font-weight: 550; color: var(--accent); }
+.question-indicator p { margin: 6px 0 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }

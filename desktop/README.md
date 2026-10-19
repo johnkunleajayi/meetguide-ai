@@ -110,3 +110,25 @@ Missing/invalid provider configuration is shown in the transcript panel; audio c
 9. Run a 30+ minute meeting to evaluate real latency, accuracy, endpoint selection and stable resource use. The bounded recent-history notice is expected during sufficiently long conversations.
 
 Automated tests use synthetic PCM, a local fake WebSocket relay and mocked provider responses. They validate transport/lifecycle/source separation but do not claim real Deepgram transcription accuracy. The audio-only opt-in hardware smoke test remains offline and never streams real microphone audio to a provider.
+
+## Conversation understanding foundation
+
+Final transcript segments feed a native in-memory engine (`src-tauri/src/understanding/`). Nearby fragments from the same source/connection merge (up to a 3-second activity gap); an intervening source, connection gap or oversized turn starts a new turn. Interims never become context/events and block detection while active.
+
+Context retains at most 32 turns / 24 KB; individual turns are capped at 4 KB. Each event snapshots at most 8 recent turns / 6 KB. The event ring retains 8 events. Nothing is persisted. Start/restart resets context/events; Stop cancels processing while leaving the last session visible. Logout clears text; shutdown stops processing.
+
+The first `UnderstandingProvider` uses conservative English question/request rules, not an LLM. Only **Them** generates questions. A 1.2-second quiet debounce, incomplete-fragment guards, minimum heuristic confidence 0.82, 6-second cooldown and bounded 128-question normalized duplicate cache limit noise. Confidence is rule strength, not a probability. Ambiguous/indirect questions and other languages may be missed. Connection gaps cancel pending detection.
+
+A small **Question detected** indication shows the latest event. Reserved event types have no detectors or suggestions. No AI client, answers, summaries or new external calls are involved.
+
+### Manual understanding check
+
+1. Start the API and native desktop app as above, sign in and start **Both**. Use headphones to avoid microphone bleed.
+2. Play system audio asking “How did you handle the Salesforce migration?” Pause at least 1.2 seconds after final text. Expect a question indication with **Them** transcript.
+3. Speak a microphone reply or question. Expect **You**, without a new detected question.
+4. Test “Tell me about yourself.” and “What would you do differently” from system audio, allowing over 6 seconds between questions. Expect detection without needing a question mark.
+5. Test a statement and incomplete “Can you explain…”; expect no new event. Complete it naturally to check fragment merging. Continuous interim speech must not emit early.
+6. Repeat a detected question (including punctuation/case changes): no new event. Two different questions within 6 seconds: the second is deliberately suppressed.
+7. Stop: no further events, even during final transcription flush. Restart: context/indication start clean and the same question may be detected again. Logout: text/indication disappear. Close/reopen: no conversation content is restored.
+
+Tests verify event counts/context bounds; the UI shows only the latest question, not event history. Real acoustic/ASR behavior requires the manual check.

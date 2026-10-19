@@ -137,6 +137,7 @@ pub async fn run(
                     last_audio = Instant::now();
                 }
                 _ = tick.tick() => {
+                    if let Ok(mut store) = store.lock() { store.tick_understanding(); }
                     if stopping {
                         if Instant::now() >= stop_deadline { break; }
                     } else if port.gap.swap(false, Ordering::AcqRel) {

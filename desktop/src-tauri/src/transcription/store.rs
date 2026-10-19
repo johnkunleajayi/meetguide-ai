@@ -1,5 +1,7 @@
+use crate::understanding::{Speaker, UnderstandingEngine, UnderstandingSnapshot};
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::time::Instant;
 
 #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,11 +50,14 @@ pub struct Snapshot {
     pub entries: VecDeque<Entry>,
     pub streams: Vec<StreamState>,
     pub trimmed: u64,
+    pub understanding: UnderstandingSnapshot,
 }
 
 pub struct TranscriptStore {
     pub snapshot: Snapshot,
     next_id: u64,
+    understanding: UnderstandingEngine,
+    clock: Instant,
 }
 impl Default for TranscriptStore {
     fn default() -> Self {
@@ -63,13 +68,19 @@ impl Default for TranscriptStore {
                 entries: VecDeque::new(),
                 streams: Vec::new(),
                 trimmed: 0,
+                understanding: UnderstandingSnapshot::default(),
             },
             next_id: 0,
+            understanding: UnderstandingEngine::default(),
+            clock: Instant::now(),
         }
     }
 }
 impl TranscriptStore {
     pub fn reset(&mut self, sources: &[Source]) {
+        self.understanding.reset(!sources.is_empty());
+        self.clock = Instant::now();
+        self.snapshot.understanding = self.understanding.snapshot.clone();
         self.snapshot.version += 1;
         self.snapshot.session_id += 1;
         self.snapshot.entries.clear();
@@ -84,6 +95,20 @@ impl TranscriptStore {
             })
             .collect();
     }
+    pub fn tick_understanding(&mut self) {
+        if self
+            .understanding
+            .tick(self.clock.elapsed().as_millis() as u64)
+        {
+            self.snapshot.understanding = self.understanding.snapshot.clone();
+            self.snapshot.version += 1;
+        }
+    }
+    pub fn stop_understanding(&mut self) {
+        self.understanding.stop();
+        self.snapshot.understanding = self.understanding.snapshot.clone();
+        self.snapshot.version += 1;
+    }
     pub fn state(&mut self, source: Source, state: &str, message: Option<&str>, dropped: u64) {
         if let Some(stream) = self
             .snapshot
@@ -97,6 +122,7 @@ impl TranscriptStore {
             self.snapshot.version += 1;
         }
         if matches!(state, "reconnecting" | "error" | "stopped") {
+            self.understanding.gap(speaker(source));
             for entry in self
                 .snapshot
                 .entries
@@ -119,6 +145,23 @@ impl TranscriptStore {
         if text.len() > 16384 {
             return;
         }
+        // A late interim/duplicate for an immutable final must not block understanding.
+        if self.snapshot.entries.iter().any(|entry| {
+            entry.source == source
+                && entry.epoch == epoch
+                && entry.segment == segment
+                && entry.final_text
+        }) {
+            return;
+        }
+        let now = self.clock.elapsed().as_millis() as u64;
+        if final_text {
+            self.understanding
+                .finalized(speaker(source), epoch, segment, text, offset_ms, now);
+        } else {
+            self.understanding.interim(speaker(source), text, now);
+        }
+        self.snapshot.understanding = self.understanding.snapshot.clone();
         let text: String = text.chars().take(4096).collect();
         if let Some(entry) = self.snapshot.entries.iter_mut().find(|entry| {
             entry.source == source && entry.epoch == epoch && entry.segment == segment
@@ -165,6 +208,13 @@ impl TranscriptStore {
     }
 }
 
+fn speaker(source: Source) -> Speaker {
+    match source {
+        Source::System => Speaker::Them,
+        Source::Microphone => Speaker::You,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +255,33 @@ mod tests {
         }
         assert_eq!(store.snapshot.entries.len(), 200);
         assert_eq!(store.snapshot.trimmed, 800);
+    }
+    #[test]
+    fn understanding_survives_late_interims_and_stops_before_final_flush() {
+        let mut store = TranscriptStore::default();
+        store.reset(&[Source::System]);
+        store.event(Source::System, 1, 1, 0, "Tell me about yourself.", true);
+        store.event(Source::System, 1, 1, 0, "Tell me", false);
+        store.clock = Instant::now() - std::time::Duration::from_millis(1300);
+        let version = store.snapshot.version;
+        store.tick_understanding();
+        assert!(store.snapshot.version > version);
+        assert_eq!(store.snapshot.understanding.events.len(), 1);
+        store.stop_understanding();
+        store.event(
+            Source::System,
+            1,
+            2,
+            2000,
+            "Why did you choose Salesforce?",
+            true,
+        );
+        assert_eq!(store.snapshot.understanding.turns.len(), 1);
+        assert!(!store.snapshot.understanding.active);
+        store.reset(&[]);
+        assert!(store.snapshot.understanding.turns.is_empty());
+        assert!(store.snapshot.understanding.events.is_empty());
+        store.reset(&[Source::System]);
+        assert!(store.snapshot.understanding.active);
     }
 }

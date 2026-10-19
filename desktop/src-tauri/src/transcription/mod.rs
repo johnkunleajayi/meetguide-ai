@@ -53,6 +53,7 @@ pub struct Session {
     ports: Vec<(Source, Arc<relay::PortState>)>,
     stop: watch::Sender<bool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    store: Arc<Mutex<TranscriptStore>>,
 }
 impl Session {
     pub fn new(
@@ -81,6 +82,7 @@ impl Session {
                 store.clone(),
             ));
         }
+        let cleanup_store = store.clone();
         let thread = std::thread::Builder::new()
             .name("meetguide-transcription".into())
             .spawn(move || {
@@ -112,6 +114,7 @@ impl Session {
             ports,
             stop,
             thread: Some(thread),
+            store: cleanup_store,
         })
     }
     pub fn port(
@@ -136,6 +139,9 @@ impl Session {
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        if let Ok(mut store) = self.store.lock() {
+            store.stop_understanding();
+        }
         for (_, port) in &self.ports {
             port.accepting.store(false, Ordering::Release);
         }

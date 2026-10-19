@@ -175,6 +175,9 @@ impl AudioService {
             .operation
             .lock()
             .map_err(|_| "Audio control is unavailable.")?;
+        if let Ok(mut store) = self.transcript.lock() {
+            store.stop_understanding();
+        }
         if let Some(worker) = self
             .worker
             .lock()
@@ -306,6 +309,42 @@ mod tests {
         });
         assert!(result.is_err());
         assert!(service.status().unwrap().state == CaptureState::Idle);
+    }
+    #[test]
+    fn logout_clears_conversation_and_events_after_stopping_processing() {
+        let service = AudioService::default();
+        {
+            let mut store = service.transcript.lock().unwrap();
+            store.reset(&[crate::transcription::Source::System]);
+            store.event(
+                crate::transcription::Source::System,
+                1,
+                1,
+                0,
+                "Tell me about yourself.",
+                true,
+            );
+            assert_eq!(store.snapshot.understanding.turns.len(), 1);
+        }
+        service
+            .stop_with(|| {
+                assert!(
+                    !service
+                        .transcript
+                        .lock()
+                        .unwrap()
+                        .snapshot
+                        .understanding
+                        .active
+                );
+                service.clear_transcript();
+                Ok(())
+            })
+            .unwrap();
+        let store = service.transcript.lock().unwrap();
+        assert!(store.snapshot.entries.is_empty());
+        assert!(store.snapshot.understanding.turns.is_empty());
+        assert!(store.snapshot.understanding.events.is_empty());
     }
     #[cfg(target_os = "windows")]
     #[test]

@@ -1,5 +1,6 @@
 mod audio;
 mod transcription;
+mod understanding;
 use tauri::Manager;
 mod api;
 mod auth;
