@@ -53,6 +53,13 @@ class AuthRepository:
     def delete_session(self, hashed_token: str) -> None:
         self.database.execute(delete(Session).where(Session.token_hash == hashed_token))
 
+    def consume_handoff(self, hashed_token: str, now: datetime):
+        return self.database.scalar(
+            delete(Session)
+            .where(Session.token_hash == hashed_token, Session.expires_at > now)
+            .returning(Session.user_id)
+        )
+
     def commit(self) -> None:
         self.database.commit()
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
@@ -10,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse
 
-from app.core import auth
+from app.core import auth, desktop_auth
 from app.db.auth_repository import AuthRepository, get_auth_repository
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -38,6 +39,23 @@ def google_client(request: Request):
 async def google_login(request: Request) -> Response:
     client = google_client(request)
     request.session.clear()
+    desktop = None
+    keys = {"desktop_port", "desktop_state", "code_challenge"}
+    if keys.intersection(request.query_params):
+        port = request.query_params.get("desktop_port", "")
+        state = request.query_params.get("desktop_state")
+        challenge = request.query_params.get("code_challenge")
+        if (
+            any(len(request.query_params.getlist(key)) != 1 for key in keys)
+            or not port.isascii()
+            or not port.isdecimal()
+            or len(port) > 5
+            or not 1024 <= int(port) <= 65535
+            or not auth.valid_token(state)
+            or not auth.valid_token(challenge)
+        ):
+            raise HTTPException(400, "Invalid desktop login request", headers=NO_STORE)
+        desktop = {"port": int(port), "state": state, "challenge": challenge}
     try:
         response = await client.authorize_redirect(
             request, request.app.state.settings.google_redirect_uri
@@ -46,6 +64,9 @@ async def google_login(request: Request) -> Response:
         raise HTTPException(
             503, "Google login is temporarily unavailable", headers=NO_STORE
         ) from None
+    if desktop is not None:
+        # Signed OAuth cookie binds the handoff to this browser's Google login state.
+        request.session["desktop_login"] = desktop
     response.headers.update(NO_STORE)
     return response
 
@@ -59,6 +80,7 @@ async def google_callback(
         request.session.clear()
         raise HTTPException(400, "Invalid Google login state", headers=NO_STORE)
     settings = request.app.state.settings
+    desktop = request.session.get("desktop_login")
     try:
         tokens = await client.authorize_access_token(
             request,
@@ -88,6 +110,25 @@ async def google_callback(
     claims = tokens.get("userinfo")
     if not isinstance(claims, dict):
         raise HTTPException(401, "Invalid Google identity", headers=NO_STORE)
+    if desktop is not None:
+        try:
+            code = await run_in_threadpool(
+                desktop_auth.create_handoff, repository, claims, desktop["challenge"]
+            )
+        except auth.InvalidIdentity:
+            raise HTTPException(
+                403, "A verified Google email is required", headers=NO_STORE
+            ) from None
+        except SQLAlchemyError:
+            raise HTTPException(
+                503, "Authentication is temporarily unavailable", headers=NO_STORE
+            ) from None
+        query = urlencode({"code": code, "state": desktop["state"]})
+        return RedirectResponse(
+            f"http://127.0.0.1:{desktop['port']}/callback?{query}",
+            status_code=303,
+            headers={**NO_STORE, "Referrer-Policy": "no-referrer"},
+        )
     try:
         _, raw_token = await run_in_threadpool(
             auth.complete_login,

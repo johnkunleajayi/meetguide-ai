@@ -15,9 +15,9 @@ meetguide-ai/
 
 A single Git repository at the project root contains three independent applications:
 
-- `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. Currently only the verified marketing frontend is implemented.
-- `desktop/`: a separate Windows-first Tauri 2 + React + TypeScript + Vite + Tailwind companion for use during meetings. Currently only a minimal shell is implemented: brand, tagline, Ready status, theme toggle, and a disabled Start Session button.
-- `backend/`: MeetGuide FastAPI API, a modular monolith with PostgreSQL, SQLAlchemy 2.x, psycopg, Alembic, and environment-based settings. Only health/configuration/database infrastructure exists; no domain tables or business features are implemented.
+- `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. The marketing frontend and cookie-based Google authentication are implemented; the remaining web roadmap is deferred.
+- `desktop/`: a separate Windows-first Tauri 2 + React + TypeScript + Vite + Tailwind companion for use during meetings. The shell includes brand, tagline, Ready status, theme toggle, a disabled Start Session button, and native Google sign-in using the shared backend. See `desktop/README.md` for secure persistence and manual verification.
+- `backend/`: MeetGuide FastAPI API, a modular monolith with PostgreSQL, SQLAlchemy 2.x, psycopg, Alembic, and environment-based settings. Health/configuration/database infrastructure, User/Session models, and Google authentication are implemented. Web and desktop share accounts and database-backed opaque sessions.
 
 ## Web development
 
@@ -70,11 +70,11 @@ The local toolchain and downloads live under ignored `work/`; they are not commi
 
 ## Desktop files
 
-- `desktop/src/App.tsx`: minimal shell with no session behavior.
+- `desktop/src/App.tsx`: shell with native authentication controls; meeting session controls remain disabled.
 - `desktop/src/hooks/useTheme.ts`: system-aware light/dark mode with optional stored preference.
 - `desktop/src/styles.css`: navy/slate/blue visual tokens and responsive shell styling.
-- `desktop/src-tauri/`: native window configuration and minimal Rust bootstrap.
-- `desktop/src-tauri/capabilities/default.json`: no privileged API permissions.
+- `desktop/src-tauri/`: native window, browser handoff, backend session client, and Windows Credential Manager storage.
+- `desktop/src-tauri/capabilities/default.json`: only four account commands for the local main window; no generic shell/network/storage access.
 - `desktop/src-tauri/icons/`: branded native application icons.
 
 ## Backend development
@@ -104,6 +104,6 @@ PostgreSQL is required for real database operations and online migrations. Healt
 
 ## Foundation scope
 
-The API foundation includes only health, configuration, database wiring, and migration infrastructure. No authentication, business tables, client API connections, session logic, audio capture, microphone access, system audio, transcription, question detection, AI, always-on-top behavior, or global shortcuts are implemented. The desktop Ready label means the shell is available, not that those capabilities are connected.
+The API includes health, configuration, PostgreSQL wiring, User/Session models, migrations, and shared Google authentication for web and desktop. Audio capture, microphone access, system audio, transcription, question detection, AI, meeting sessions, always-on-top behavior, and global shortcuts remain deferred. The desktop Ready label indicates that the shell is available. See `backend/README.md` and `desktop/README.md` for authentication setup and verification.
 
 Both applications use the MeetGuide navy/white/slate/blue identity, keyboard focus styles, readable sans-serif typography, and light/dark mode. Dependencies, builds, Rust targets, generated Tauri schemas, local configuration, caches, logs, IDE files, and toolchains are ignored at the repository root.

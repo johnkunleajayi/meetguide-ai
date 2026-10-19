@@ -197,3 +197,16 @@ footer {
     animation: none !important;
   }
 }
+
+.auth-panel { margin-top: 24px; }
+.auth-button { min-height: 36px; padding: 8px 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 11px; cursor: pointer; white-space: nowrap; }
+.auth-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.auth-button:disabled { opacity: .65; cursor: wait; }
+.auth-note { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 10px 0; }
+.auth-profile { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.auth-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.auth-initial { display: grid; place-items: center; background: var(--surface); color: var(--ink); border: 1px solid var(--border); font-size: 14px; }
+.auth-identity { flex: 1; min-width: 0; }
+.auth-name, .auth-email { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-name { font-size: 12px; }
+.auth-email { color: var(--muted); font-size: 10px; margin-top: 4px; }

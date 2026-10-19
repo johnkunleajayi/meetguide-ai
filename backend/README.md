@@ -116,3 +116,17 @@ Session security:
 Users are matched by normalized, verified Google email; no separate Google-account linking or password authentication is introduced. The existing users table must not contain ambiguous duplicate case variants of an email. Expired session rows stop authenticating immediately; scheduled row cleanup is not implemented.
 
 Tests mock Google discovery/token/JWKS HTTP requests, generate disposable test RSA keys, and exercise actual Authlib claim/signature checks. Authentication persistence uses an in-memory test double (not a database fallback); SQLAlchemy PostgreSQL query behavior and migration DDL are tested separately with mocks/offline compilation. Tests never read the real .env or connect to Neon. Live database/authentication integration is pending manual application of `0002_sessions` and a manual Google flow.
+
+## Desktop authentication handoff
+
+The existing Google login route optionally accepts `desktop_port` (1024–65535), a random 43-character `desktop_state`, and a 43-character S256 `code_challenge`. The signed Google handshake cookie binds these to the validated OAuth flow. Without these parameters the web redirect/cookie behavior is unchanged. Desktop redirects are constructed internally as `http://127.0.0.1:<port>/callback`; arbitrary redirect hosts/paths are never accepted.
+
+After Google validation, the desktop branch upserts the same User and creates a **60-second one-use handoff**, not a browser login cookie. The code combines a random 256-bit nonce with its public PKCE challenge. Its namespaced SHA-256 hash is stored in an ordinary sessions row; the code is never accepted as a session token. No schema changes or new migrations are required. Abandoned rows expire and are handled by the existing expired-session cleanup policy (no automatic cleanup job is currently implemented).
+
+- `POST /api/auth/desktop/exchange`: JSON `code` and `verifier`. Validates S256, atomically consumes an unexpired handoff with PostgreSQL DELETE/RETURNING, and inserts the normal hashed opaque session in the same transaction. Returns `session_token` only to the native Rust client with Cache-Control: no-store. Codes cannot be replayed across workers.
+- `GET /api/auth/desktop/me`: requires `Authorization: Bearer <opaque session>` and returns the existing user schema.
+- `POST /api/auth/desktop/logout`: revokes that bearer session. These native routes never fall back to browser cookies; the web logout Origin/CSRF policy remains unchanged.
+
+Google secrets remain server-only. There is no JWT or second user/session system. Native calls do not use CORS or browser cookies; no CORS expansion is needed. Keep HTTPS outside loopback development, a stable AUTH_STATE_SECRET across server workers, and access/body/header logs disabled for authentication. Continue using the existing backend Google Web OAuth client/redirect URI. Restart the API after updating code; do not apply any migration for this change.
+
+Desktop session tokens are kept by Rust in Windows Credential Manager and never exposed to React. See `../desktop/README.md` for setup, security boundaries, and manual login/restart/logout checks.

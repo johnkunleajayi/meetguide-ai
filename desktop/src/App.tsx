@@ -1,3 +1,4 @@
+import { DesktopAuth } from "./components/DesktopAuth";
 import { useTheme } from "./hooks/useTheme";
 export default function App() {
   const { theme, toggleTheme } = useTheme();
@@ -59,6 +60,7 @@ export default function App() {
         <p className="eyebrow">DESKTOP COMPANION</p>
         <h1>MeetGuide AI</h1>
         <p className="tagline">Your real-time AI meeting assistant.</p>
+        <DesktopAuth />
         <section className="status-panel" aria-label="Desktop status">
           <div className="status-row">
             <span className="status-label">Application status</span>

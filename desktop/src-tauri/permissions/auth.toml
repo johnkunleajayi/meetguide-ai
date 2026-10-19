@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-desktop-auth"
+description = "Allow only the local main window to use native MeetGuide authentication commands."
+commands.allow = ["auth_restore", "auth_login", "auth_logout", "auth_cancel"]
