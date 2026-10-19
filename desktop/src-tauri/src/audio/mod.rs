@@ -19,6 +19,7 @@ struct Worker {
 }
 #[derive(Default)]
 pub struct AudioService {
+    pub(crate) cues: Arc<crate::cue::CueService>,
     pub(crate) transcript: Arc<Mutex<crate::transcription::TranscriptStore>>,
     operation: Mutex<()>,
     worker: Mutex<Option<Worker>>,
@@ -27,6 +28,7 @@ pub struct AudioService {
 
 impl AudioService {
     pub fn clear_transcript(&self) {
+        self.cues.reset(None);
         if let Ok(mut store) = self.transcript.lock() {
             store.reset(&[]);
         }
@@ -73,10 +75,15 @@ impl AudioService {
         .flatten()
         .collect::<Vec<_>>();
         let transcript = self.transcript.clone();
-        transcript
-            .lock()
-            .map_err(|_| "Transcript state is unavailable.")?
-            .reset(if relay.is_some() { &sources } else { &[] });
+        let session_id = {
+            let mut store = transcript
+                .lock()
+                .map_err(|_| "Transcript state is unavailable.")?;
+            store.reset(if relay.is_some() { &sources } else { &[] });
+            store.snapshot.session_id
+        };
+        self.cues.reset(relay.as_ref().map(|_| session_id));
+        let cues = self.cues.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
         let snapshot = self.snapshot.clone();
@@ -110,6 +117,7 @@ impl AudioService {
                     "The audio worker stopped unexpectedly. Restart the session.",
                 ));
                 if let Err(message) = result {
+                    cues.reset(None);
                     if let Ok(mut store) = transcript.lock() {
                         for source in [
                             crate::transcription::Source::System,
@@ -175,6 +183,7 @@ impl AudioService {
             .operation
             .lock()
             .map_err(|_| "Audio control is unavailable.")?;
+        self.cues.reset(None);
         if let Ok(mut store) = self.transcript.lock() {
             store.stop_understanding();
         }

@@ -1,3 +1,4 @@
+import { LiveCue } from "./LiveCue";
 import { useEffect, useRef, useState } from "react";
 import { readTranscript, sourceLabel, type TranscriptSnapshot } from "../lib/transcription";
 
@@ -50,6 +51,7 @@ export function TranscriptPanel({ authenticated }: { authenticated: boolean }) {
       {error && <p role="alert">Unable to read transcription status. Check the desktop connection.</p>}
     </div>
     {question && <aside className="question-indicator" role="status"><strong>Question detected</strong><p>{question.text}</p></aside>}
+    <LiveCue sessionId={snapshot?.sessionId ?? 0} event={question} active={authenticated && !!snapshot?.understanding.active} />
     <div className="transcript-scroll" ref={scroller} tabIndex={0} aria-label="Conversation transcript" onScroll={() => {
       const element = scroller.current;
       if (!element) return;

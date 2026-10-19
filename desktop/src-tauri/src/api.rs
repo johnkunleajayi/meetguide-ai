@@ -38,6 +38,10 @@ impl Api {
         Ok(Self { base, client })
     }
 
+    pub fn cue_url(&self) -> String {
+        self.endpoint("/api/cues/generate").to_string()
+    }
+
     pub fn transcription_url(&self) -> String {
         let mut url = self.endpoint("/api/transcription/stream");
         let scheme = if url.scheme() == "https" { "wss" } else { "ws" };

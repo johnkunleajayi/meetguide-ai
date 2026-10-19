@@ -132,3 +132,11 @@ A small **Question detected** indication shows the latest event. Reserved event 
 7. Stop: no further events, even during final transcription flush. Restart: context/indication start clean and the same question may be detected again. Logout: text/indication disappear. Close/reopen: no conversation content is restored.
 
 Tests verify event counts/context bounds; the UI shows only the latest question, not event history. Real acoustic/ASR behavior requires the manual check.
+
+## Personalized Live Cue
+
+A sufficiently confident finalized Them question now prepares a ready-to-speak answer through the authenticated MeetGuide backend. The native layer reads the existing session credential from Windows Credential Manager; React never receives it. The workspace shows Preparing answer, then readable paragraphs and a small document-excerpt/general-approach indicator. Errors offer an explicit Retry answer button without stopping transcription.
+
+Native session/event IDs prevent duplicate generation and mismatched results. A newer question supersedes the previous request; UI rendering also requires matching session/event IDs. Stop/restart/logout and window close invalidate pending native work and clear cues. No cue is stored on disk or in PostgreSQL. Cancellation is best effort after a provider has received a request.
+
+Generation is disabled until the backend is configured. See backend/README.md, Personalized Live Cue, for exact environment variables, free-tier privacy/cost implications and safe fictional-data test steps. Do not test free-tier Gemini with a real résumé or private meeting. No desktop key or new npm/Rust dependency is required. The existing transcription/understanding path remains independent of provider failures.

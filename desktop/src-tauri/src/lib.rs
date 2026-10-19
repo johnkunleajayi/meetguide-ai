@@ -1,4 +1,5 @@
 mod audio;
+mod cue;
 mod transcription;
 mod understanding;
 use tauri::Manager;
@@ -26,6 +27,8 @@ pub fn run() {
             audio::audio_start,
             audio::audio_status,
             audio::audio_stop,
+            cue::cue_prepare,
+            cue::cue_status,
             transcription::transcription_status
         ])
         .run(tauri::generate_context!())

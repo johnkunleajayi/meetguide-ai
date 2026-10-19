@@ -25,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine.dispose()
 
     application = FastAPI(title=configuration.app_name, lifespan=lifespan)
+    application.state.cue_pending = {}
     application.state.settings = configuration
     application.state.oauth = create_oauth(configuration)
     application.add_middleware(

@@ -1,0 +1,380 @@
+"""All provider calls are fakes/MockTransport; no real résumé or external API is used."""
+
+import asyncio
+import json
+from types import SimpleNamespace
+from uuid import uuid4
+
+import httpx
+import pytest
+from pydantic import SecretStr
+
+from app.context.repository import get_context_repository
+from app.cues.api import get_provider
+from app.cues.domain import CueInput, Draft, Evidence
+from app.cues.gemini import GeminiProvider
+from app.cues.lifecycle import CueDisconnected, until_disconnect
+from app.cues.prompt import HONEST_BRIDGE, SYSTEM, user_prompt, validate_draft
+from app.cues.provider import ProviderUnavailable
+from app.cues.service import generate_cue, retrieve_evidence
+from app.db.auth_repository import get_auth_repository
+
+PARAGRAPHS = [
+    (
+        "I would start by clarifying the goal and the systems involved, then trace how "
+        "information needs to move between them. I'd check the assumptions with the team "
+        "and agree on a small, clear outcome before choosing an approach."
+    ),
+    (
+        "I would break the work into manageable steps, validate each step in a safe environment, "
+        "and keep the risks visible throughout. I'd explain the tradeoffs plainly and adjust "
+        "the plan based on feedback rather than promise an outcome without enough information."
+    ),
+]
+QUOTE = "Developed Salesforce integrations with external APIs."
+
+
+def payload(**values):
+    return CueInput.model_validate(
+        {
+            "type": "question",
+            "speaker": "them",
+            "finalized": True,
+            "confidence": 0.94,
+            "question": "How did you handle the Salesforce integration?",
+            "context": [],
+            **values,
+        }
+    )
+
+
+def draft(grounded=False):
+    return Draft(
+        paragraphs=(
+            [
+                "I developed Salesforce integrations with external APIs. " + PARAGRAPHS[0],
+                PARAGRAPHS[1],
+            ]
+            if grounded
+            else PARAGRAPHS.copy()
+        ),
+        evidence_ids=["E1"] if grounded else [],
+    )
+
+
+def evidence(text=QUOTE):
+    return Evidence(id="E1", document_id=uuid4(), chunk_id=uuid4(), text=text)
+
+
+class FakeProvider:
+    def __init__(self):
+        self.calls = []
+        self.fail = False
+
+    async def generate(self, system, user):
+        self.calls.append((system, json.loads(user)))
+        if self.fail:
+            raise ProviderUnavailable()
+        return draft(bool(json.loads(user)["document_evidence"]))
+
+
+@pytest.fixture
+def cue_api(client):
+    user = SimpleNamespace(id=uuid4())
+    item = evidence()
+    provider = FakeProvider()
+
+    class Repository:
+        def __init__(self):
+            self.owners = []
+            self.empty = False
+
+        def rows(self, owner, document):
+            self.owners.append(owner)
+            return (
+                []
+                if self.empty
+                else [
+                    (
+                        SimpleNamespace(id=item.document_id),
+                        SimpleNamespace(id=item.chunk_id, position=0, text=item.text),
+                    )
+                ]
+            )
+
+    repository = Repository()
+
+    class Auth:
+        def user_for_session(self, hashed, now):
+            return user
+
+    client.app.dependency_overrides[get_auth_repository] = lambda: Auth()
+    client.app.dependency_overrides[get_context_repository] = lambda: repository
+    client.app.dependency_overrides[get_provider] = lambda: provider
+    yield client, provider, repository, user
+    client.app.dependency_overrides.clear()
+
+
+def post(client, body=None, **kwargs):
+    return client.post(
+        "/api/cues/generate",
+        json=body or payload().model_dump(),
+        headers={"Authorization": "Bearer " + "a" * 43},
+        **kwargs,
+    )
+
+
+def test_question_generates_bounded_grounded_ready_to_speak_answer(cue_api):
+    client, provider, repository, user = cue_api
+    response = post(client)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer"].startswith("I developed Salesforce")
+    assert len(body["answer"].split("\n\n")) == 2
+    assert body["grounding"] == "document_supported" and len(body["sources"]) == 1
+    assert repository.owners == [user.id] and len(provider.calls) == 1
+    assert response.headers["cache-control"] == "no-store"
+    assert not client.app.state.cue_pending
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"type": "important_point"},
+        {"speaker": "you"},
+        {"finalized": False},
+        {"confidence": 0.7},
+        {"question": "x"},
+        {"question": "x" * 1601},
+        {"context": [{"speaker": "them", "text": "x" * 1000}] * 5},
+    ],
+)
+def test_nonquestions_interims_and_unbounded_input_never_call_provider(cue_api, change):
+    client, provider, *_ = cue_api
+    response = post(client, {**payload().model_dump(), **change})
+    assert response.status_code == 422 and not provider.calls
+
+
+def test_no_context_and_provider_failure_are_safe_and_retryable(cue_api):
+    client, provider, repository, _ = cue_api
+    repository.empty = True
+    response = post(client)
+    assert response.status_code == 200 and response.json()["grounding"] == "general_approach"
+    assert response.json()["sources"] == []
+    provider.fail = True
+    assert post(client).status_code == 503
+    assert not client.app.state.cue_pending
+    provider.fail = False
+    assert post(client).status_code == 200
+
+
+def test_cookie_only_missing_and_untrusted_origin_rejected(cue_api):
+    client, provider, *_ = cue_api
+    assert client.post("/api/cues/generate", json=payload().model_dump()).status_code == 401
+    assert (
+        client.post(
+            "/api/cues/generate",
+            json=payload().model_dump(),
+            headers={"Authorization": "Bearer " + "a" * 43, "Origin": "https://untrusted.example"},
+        ).status_code
+        == 403
+    )
+    assert not provider.calls
+
+
+def test_disabled_by_default_and_api_key_never_in_repr(cue_api, settings):
+    client, *_ = cue_api
+    client.app.dependency_overrides.pop(get_provider)
+    assert not settings.live_cue_enabled and settings.gemini_api_key is None
+    assert post(client).status_code == 503
+    settings.gemini_api_key = SecretStr("fake-test-key")
+    assert "fake-test-key" not in repr(settings)
+
+
+def test_busy_and_oversized_request_do_not_call_provider(cue_api):
+    client, provider, _, user = cue_api
+    client.app.state.cue_pending[user.id] = 2
+    assert post(client).status_code == 429
+    client.app.state.cue_pending.clear()
+    assert (
+        client.post(
+            "/api/cues/generate",
+            content=b"x" * 32769,
+            headers={"Authorization": "Bearer " + "a" * 43},
+        ).status_code
+        == 413
+    )
+    assert not provider.calls
+
+
+def test_retrieval_uses_recent_you_topic_for_followup_and_only_owned_rows():
+    owner = uuid4()
+    calls = []
+
+    class Repository:
+        def rows(self, user, document):
+            calls.append(user)
+            return [
+                (SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4(), position=0, text=QUOTE))
+            ]
+
+    request = payload(
+        question="What was the biggest challenge?",
+        context=[{"speaker": "you", "text": "I worked on Salesforce integration."}],
+    )
+    result = retrieve_evidence(Repository(), owner, request)
+    assert calls == [owner] and result and QUOTE in result[0].text
+    prompt = json.loads(user_prompt(request, result))
+    assert prompt["recent_conversation"][0]["speaker"] == "you"
+    assert "UNTRUSTED DATA" in SYSTEM and "not verified evidence" in SYSTEM
+
+
+def test_evidence_is_at_most_three_excerpts_and_3600_characters():
+    class Repository:
+        def rows(self, user, document):
+            return [
+                (
+                    SimpleNamespace(id=uuid4()),
+                    SimpleNamespace(id=uuid4(), position=i, text="Salesforce " * 500),
+                )
+                for i in range(10)
+            ]
+
+    result = retrieve_evidence(Repository(), uuid4(), payload())
+    assert len(result) == 3 and sum(len(item.text) for item in result) <= 3600
+
+
+def test_honest_bridge_and_hypothetical_requested_technology_are_allowed():
+    answer = draft()
+    answer.paragraphs[0] = (
+        HONEST_BRIDGE + " " + answer.paragraphs[0].replace("the systems involved", "SAP S/4HANA")
+    )
+    assert validate_draft(answer, []).grounding == "general_approach"
+
+
+def test_invalid_draft_is_sanitized_as_provider_failure():
+    class InvalidProvider:
+        async def generate(self, system, user):
+            return Draft(paragraphs=["You should mention your experience.", "Explain the result."])
+
+    with pytest.raises(ProviderUnavailable):
+        asyncio.run(generate_cue(InvalidProvider(), payload(), []))
+
+
+def test_gemini_contract_uses_mocked_http_and_no_key_in_url(settings):
+    settings.gemini_api_key = SecretStr("fake-test-key")
+
+    def handler(request):
+        assert request.url.host == "generativelanguage.googleapis.com"
+        assert not request.url.query and request.headers["x-goog-api-key"] == "fake-test-key"
+        body = json.loads(request.content)
+        assert body["generationConfig"]["responseMimeType"] == "application/json"
+        assert "tools" not in body
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": draft().model_dump_json()}]},
+                    }
+                ]
+            },
+        )
+
+    output = asyncio.run(
+        GeminiProvider(settings, httpx.MockTransport(handler)).generate(SYSTEM, "fictional test")
+    )
+    assert output.paragraphs == PARAGRAPHS
+
+
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ({}, 200),
+        ({"candidates": []}, 200),
+        ({"candidates": ["invalid candidate"]}, 200),
+        ({"candidates": [{"finishReason": "STOP", "content": {"parts": [None]}}]}, 200),
+        ({"candidates": [{"finishReason": "MAX_TOKENS"}]}, 200),
+        ({"error": "fake private detail"}, 429),
+        ({}, 503),
+    ],
+)
+def test_gemini_failures_are_sanitized(settings, body, status):
+    settings.gemini_api_key = SecretStr("fake-test-key")
+    with pytest.raises(ProviderUnavailable) as error:
+        asyncio.run(
+            GeminiProvider(
+                settings, httpx.MockTransport(lambda _: httpx.Response(status, json=body))
+            ).generate(SYSTEM, "fictional test")
+        )
+    assert not str(error.value)
+
+
+def test_disconnect_cancels_generation():
+    async def scenario():
+        finished = asyncio.Event()
+
+        class Disconnected:
+            async def is_disconnected(self):
+                return True
+
+        async def work():
+            try:
+                await asyncio.sleep(60)
+            finally:
+                finished.set()
+
+        with pytest.raises(CueDisconnected):
+            await until_disconnect(Disconnected(), work())
+        assert finished.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_hypothetical_supporting_sentence_does_not_require_repeated_first_person():
+    answer = draft()
+    answer.paragraphs[0] += " This would keep the scope clear and reduce unnecessary risk."
+    assert validate_draft(answer, []).grounding == "general_approach"
+    answer.paragraphs[0] += " I managed Salesforce projects, so this would be familiar."
+    with pytest.raises(ValueError):
+        validate_draft(answer, [])
+
+
+def test_safe_gemini_http_diagnostics_never_echo_error_body_or_key(settings, caplog):
+    settings.gemini_api_key = SecretStr("fake-private-key")
+    response = {
+        "error": {
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "fake-private-key private-resume private-transcript private-answer",
+        }
+    }
+    with pytest.raises(ProviderUnavailable):
+        asyncio.run(
+            GeminiProvider(
+                settings, httpx.MockTransport(lambda _: httpx.Response(429, json=response))
+            ).generate("private-system", "private-user")
+        )
+    assert "http_status=429 reason=RESOURCE_EXHAUSTED" in caplog.text
+    for secret in [
+        "fake-private-key",
+        "private-resume",
+        "private-transcript",
+        "private-answer",
+        "private-user",
+        "private-system",
+    ]:
+        assert secret not in caplog.text
+
+
+def test_safe_grounding_diagnostic_distinguishes_local_rejection(caplog):
+    class InvalidProvider:
+        async def generate(self, system, user):
+            output = draft()
+            output.paragraphs[0] += " I worked at FictionalCorp on a private-example project."
+            return output
+
+    with pytest.raises(ProviderUnavailable):
+        asyncio.run(generate_cue(InvalidProvider(), payload(), []))
+    assert "Live Cue validation: attempt=2 reason=Personal history without evidence" in caplog.text
+    assert "private-example" not in caplog.text

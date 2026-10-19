@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TranscriptPanel } from "../src/components/TranscriptPanel";
 import { readTranscript, type TranscriptSnapshot } from "../src/lib/transcription";
+vi.mock("../src/lib/cue", () => ({ prepareCue: vi.fn(), readCue: vi.fn(async () => ({ sessionId: 0, eventId: 0, status: "idle", answer: null, grounding: null, sourceCount: 0, error: null })) }));
 vi.mock("../src/lib/transcription", async (original) => ({ ...await original<typeof import("../src/lib/transcription")>(), readTranscript: vi.fn() }));
 const partial: TranscriptSnapshot = { version: 1, sessionId: 1, entries: [{ id: 1, source: "system", text: "Interim words", finalText: false, interrupted: false, offsetMs: 0 }], streams: [{ source: "system", state: "streaming", message: null, droppedChunks: 0 }], trimmed: 0, understanding: { active: true, turns: [], events: [], trimmedTurns: 0 } };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(readTranscript).mockResolvedValue(null); });
@@ -60,7 +61,7 @@ it("shows a small question indication and clears it on logout", async () => {
   vi.mocked(readTranscript).mockResolvedValue(detected);
   const { rerender } = render(<TranscriptPanel authenticated />);
   expect((await screen.findByRole("status")).textContent).toContain("Question detected");
-  expect(screen.getByText("How did you handle the migration?")).toBeTruthy();
+  expect(screen.getAllByText("How did you handle the migration?")[0]).toBeTruthy();
   rerender(<TranscriptPanel authenticated={false} />);
   expect(screen.queryByRole("status")).toBeNull();
 });

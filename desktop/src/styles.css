@@ -249,3 +249,10 @@ footer {
 .question-indicator { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 7px; }
 .question-indicator strong { font-size: 10px; font-weight: 550; color: var(--accent); }
 .question-indicator p { margin: 6px 0 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.live-cue { margin-top: 18px; padding: 20px; background: var(--bg); border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 9px; }
+.live-cue-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.live-cue-heading h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.live-cue-heading span { color: var(--accent); font-size: 10px; }
+.live-cue-question { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0; overflow-wrap: anywhere; }
+.live-cue-answer p { font-size: 15px; line-height: 1.85; margin: 16px 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .live-cue { padding: 15px; } }

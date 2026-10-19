@@ -200,3 +200,52 @@ Repeat with `leadership experience`; use a résumé containing those facts. Insp
 6. Sign out and sign in with another Google account. The first account's list/content must be absent. Request its document ID through delete/retrieval: expect 404/empty results.
 7. Return to the original account, delete the document and confirm removal. Refresh and rerun retrieval: no content remains available. Check the configured private file directory and database for removal if desired.
 8. Check light/dark mode and a narrow viewport; the existing landing page remains unchanged outside the added authenticated library.
+
+## Personalized Live Cue
+
+The native desktop sends a confident finalized question event to `POST /api/cues/generate` using its existing opaque bearer session. Web cookies alone cannot call this native endpoint. Retrieval stays backend-side and always filters by the authenticated user. No migrations, transcript persistence or stored cues were added.
+
+`app/cues/provider.py` defines the replaceable `CueProvider` protocol. The single adapter is Gemini 3.5 Flash-Lite over the existing httpx dependency; no new SDK, account connection UI or second provider was added. It uses stateless `generateContent`, structured JSON, no tools/search, temperature 0.2, a 2,200 output-token cap and bounded response bytes. Requests time out; there are no automatic billable retries.
+
+### Manual configuration — no billing was enabled
+
+The real `.env` was not changed. When ready, configure these backend-only variables yourself:
+
+```dotenv
+LIVE_CUE_ENABLED=true
+LIVE_CUE_PROVIDER=gemini
+LIVE_CUE_MODEL=gemini-3.5-flash-lite
+GEMINI_API_KEY=<your-private-key>
+```
+
+Until enabled and a key is supplied, generation returns a retryable configuration error; audio/transcription still work. Restart the API after changing configuration. Never use a `VITE_` variable for this key or put it into desktop code.
+
+Google currently lists a free quota for this model, subject to account/region/quota eligibility. Paid standard pricing is currently $0.30 per million input tokens and $2.50 per million output tokens, including thinking. Check current pricing and quota before enabling anything: https://ai.google.dev/gemini-api/docs/pricing . This feature does not enable billing or buy credits.
+
+**Use fictional, non-sensitive documents and conversations for free-tier testing.** Google's unpaid-service terms permit use of submitted inputs/outputs for product improvement and possible human review, and instruct users not to submit sensitive/confidential/personal information: https://ai.google.dev/gemini-api/terms . Paid-service data terms differ; review them before sending real résumé/conversation content. Disabling MeetGuide persistence does not override provider retention/data terms.
+
+### Data minimization and answer contract
+
+Each generation request contains the fixed answer instructions, question (at most 1,600 characters), at most six recent turns (at most 1,000 characters each / 4,000 total), and at most three relevant owned document chunks (1,200 characters each / 3,600 total). Short follow-up retrieval includes recent Them/You topics so references like 'the project' can find the earlier subject. No full résumé, raw file, audio, account email, session token, document filename or storage path is deliberately included. Selected excerpts can themselves contain personal data. Conversation is used to resolve references, not as verified personal-history evidence.
+
+The model is asked for natural first-person speech, normally 85–150 words in 2–3 short paragraphs. Retrieved excerpts are delimited in `document_evidence`; the prompt treats them as untrusted data and the only support for personal history. It explicitly prohibits invented employers, technologies, projects, responsibilities, numbers, achievements and challenges, and preserves attribution, qualifications and negation. Conversation resolves references but does not establish personal facts. Missing specifics should lead to an honest bridge, supported transferable experience or a hypothetical approach.
+
+The response contains paragraphs and evidence IDs, with no per-sentence claims or verbatim quotes. Normal paraphrasing, reordering, transitions and responsibility wording are allowed. Local checks enforce spoken length/paragraphs, reject coaching and unknown source IDs, and flag a narrow set of concrete unsupported anchors in personal-history assertions: recognized technology names, explicitly named employment/projects, digit-based quantities with units, and explicit sole credit. These checks deliberately do not compare arbitrary capitalized words or synonym groups. They are tripwires, not comprehensive semantic verification; an allowed answer is not proof of factual accuracy, and source references indicate excerpts used rather than independent certification.
+
+There is no second LLM verification request. Successful normal generation uses one request. A local validation failure permits at most one conservative regeneration with the original bounded input and a fixed failure category; the rejected answer is not resent. If validation still fails, the answer is withheld with the existing retryable error. Provider/network failures are not automatically retried. Both generation attempts share the existing overall timeout and cancellation. This reduces normal latency/token cost; exceptional regeneration can add latency/cost within that deadline. Logs contain only fixed failure categories, never document text, conversation or answers. No cues/transcripts are persisted.
+
+Application state remains in memory. Request bodies, provider errors, prompts and answers are not logged by this module. Keep body/header capture disabled in reverse proxies/APM. Disconnects cancel work where possible. Already received provider requests may still incur usage. The backend limits concurrent calls to two per account / eight per process; this is not a distributed quota or billing limit.
+
+### Safe end-to-end test
+
+1. Use a dedicated test account whose Context Library contains only a fictional CV. Remove real documents from that account; do not use a real meeting. Existing Context Library migrations must already be applied.
+2. In the web app, upload a small fictional TXT CV with complete factual lines, for example: `Developed Salesforce integrations with external APIs.` and `Managed a team of six engineers.` Avoid real contact details.
+3. Configure the variables above with an eligible test key, keeping billing disabled if free quota is available. Restart the existing API, then run `./start-desktop.ps1` from the project root and sign in with that same test account.
+4. Start System Audio or Both, using headphones. Play a synthetic/system-audio question: 'How did you handle the Salesforce integration?' Wait for finalized Them text, question detection, then Preparing answer and a readable two-paragraph answer. Microphone-only questions must not trigger a cue.
+5. Speak a fictional reply mentioning the integration, then play 'What was the biggest challenge?' Allow over six seconds between detected questions (the existing understanding cooldown). Check that the cue follows the subject without inventing an undocumented challenge/result.
+6. Ask about an unsupported system such as SAP S/4HANA. Expect an honest bridge/transferable documented fact plus a hypothetical approach; never claimed hands-on SAP experience. Empty/no-match context should produce a general hypothetical answer.
+7. Repeat a detected question: it should not generate again within the existing duplicate cache. Ask a different question while an answer is preparing: an old answer must not replace it.
+8. Temporarily disable Live Cue in backend configuration and restart the API. Transcription/question detection should continue while the cue shows a retryable error. Re-enable, restart and click Retry answer. Do not paste any key into the UI.
+9. Stop during preparation, restart, sign out and close/reopen the desktop app. Cues must clear and stale responses must not return. Restore `LIVE_CUE_ENABLED=false` when finished if you want generation disabled.
+
+Automated tests use fake providers and httpx MockTransport, never live Google/Gemini or real document contents. No live provider or acoustic answer-quality test was performed during implementation.

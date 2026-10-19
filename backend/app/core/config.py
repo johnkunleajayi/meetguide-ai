@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     context_storage_dir: Path = Field(default=ENV_FILE.parent / ".data" / "documents", repr=False)
 
+    live_cue_enabled: bool = False
+    live_cue_provider: Literal["gemini"] = "gemini"
+    gemini_api_key: SecretStr | None = Field(default=None, repr=False)
+    live_cue_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^gemini-[a-z0-9.-]+$")
+
     transcription_provider: Literal["deepgram"] = "deepgram"
     deepgram_api_key: SecretStr | None = Field(default=None, repr=False)
     transcription_model: str = Field(default="nova-3", min_length=1, max_length=80)
