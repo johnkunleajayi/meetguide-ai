@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
 from app.core.config import Settings
-from app.db.base import Base
 from app.main import create_app
 
 
@@ -13,7 +12,7 @@ def test_application_startup_without_database(client: TestClient) -> None:
     assert client.app.state.settings.app_env == "test"
     assert client.app.state.engine.url.drivername == "postgresql+psycopg"
     assert client.app.state.session_factory.kw["bind"] is client.app.state.engine
-    assert len(Base.metadata.tables) == 0
+    assert client.app.state.engine.pool.checkedout() == 0
 
 
 def test_health_returns_expected_response(client: TestClient) -> None:
