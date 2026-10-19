@@ -142,3 +142,61 @@ Set a real **server-only** `DEEPGRAM_API_KEY` in the existing ignored environmen
 Use the installed `websockets` transport with Uvicorn's `--ws websockets-sansio --ws-max-size 8192 --ws-max-queue 8 --no-access-log --log-level warning`. Reverse proxies must support long-lived authenticated WebSockets; use TLS outside loopback development. Do not enable frame/body/header debug logs. Provider wire logging is explicitly disabled. Audio/transcripts exist only in bounded process/network buffers and are never written to files or PostgreSQL. The provider necessarily processes audio; request opt-out and retention behavior must be verified against the provider account/policy.
 
 The relay uses fresh short-lived DB sessions only for authorization and revalidation (every 60 seconds), not long-running meeting transactions. Provider sockets use bounded buffers, keepalives and timeouts; stop/disconnect cancels sender/receiver tasks and closes upstream resources. Tests mock Google, database access and transcription providers. Synthetic native relay tests and the real local Uvicorn protocol smoke check require no cloud credentials and do not prove live provider accuracy.
+
+## Context Library foundation
+
+Authenticated web users can upload résumé/CV context, list documents, delete them and retrieve relevant chunks. The general `context_documents` / `context_chunks` schema and storage/index interfaces support adding other document types later; only `resume` is accepted now. No AI or embedding service is used. Desktop UI is unchanged.
+
+### Setup and migration
+
+Install `requirements.txt` in the existing virtual environment. Review migration `0003_context_library` before applying it manually:
+
+```powershell
+# Run from backend/, using the existing private .env. Never print its values.
+.\.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+This implementation did not apply the migration to Neon. Back up the database before schema changes. Restart the API after migration. The existing frontend origin must remain `http://127.0.0.1:5173`.
+
+Local files default to `backend/.data/documents`, ignored by Git and never served publicly. `CONTEXT_STORAGE_DIR` can select an absolute private persistent directory; no setting change is required for local development. Restrict OS/NTFS access to the backend service account. Windows uses inherited NTFS ACLs, not POSIX mode bits. This checkout is in OneDrive: its default data directory may be synced by OneDrive. Use a dedicated private, non-synced encrypted volume for deployment/sensitive real documents. Back up PostgreSQL and private storage together; deleting a document cannot erase pre-existing backups/provider snapshots. There is no object-storage account or paid API requirement.
+
+`DocumentStorage` is replaceable with a private object-storage adapter. Raw binaries stay out of PostgreSQL. Metadata, normalized extracted text and retrieval chunks are stored in PostgreSQL. Storage keys are random UUID identifiers, independent of user filenames; API responses never include storage keys/paths or full extracted text. Account deletion is restricted while documents exist so raw files cannot be orphaned through a user cascade.
+
+### API contract
+
+All endpoints require the existing session cookie. Mutations/retrieval POSTs require the exact frontend `Origin` for CSRF protection. Credentialed CORS supports DELETE and the upload filename header. No public file/download endpoint exists.
+
+- `POST /api/context/documents`: raw file body (not multipart), `Content-Type: application/octet-stream`, `X-Document-Name: <URL-encoded UTF-8 filename>`. Returns document metadata (201).
+- `GET /api/context/documents`: owned document metadata only.
+- `DELETE /api/context/documents/{uuid}`: delete an owned document and its chunks/file (204); unknown and other-owner IDs both return 404.
+- `POST /api/context/retrieve`: JSON `{"query":"Salesforce integration experience","limit":5,"document_id":null}`. Returns text, document/chunk IDs, document name/type, rank and BM25 score. No match returns an empty array. Other-owner document filters also return an empty array.
+
+Upload limits: 5 MiB (declared and streamed body), 100 PDF pages, 200,000 extracted characters, up to 50 documents/account. PDF signature/parser checks, DOCX ZIP/OOXML checks and UTF-8/control-character checks validate contents in addition to extensions; browser MIME is not trusted. Encrypted, scanned/image-only, empty and malformed documents are rejected. No OCR. DOCX main-body paragraphs and table-cell text retain document order; headers/footers/text boxes and complex visual layout may not survive extraction. PDF text order depends on the source PDF. PDF parser work/decompression and DOCX ZIP expansion/entity limits are bounded; this remains a synchronous development ingestion path, not a bulk document-processing service.
+
+Normalized paragraphs are packed into chunks up to 1,200 characters; oversized paragraphs split near words with about 160 characters overlap. `RetrievalIndex` provides a replaceable chunk/rank boundary. The initial adapter computes deterministic BM25 over owned ready chunks, with a small English synonym map (leadership/management, integration/API/automation). Scores are relative lexical relevance, not factual confidence or semantic understanding. No network call, paid embedding or vector database is involved. Ranking scans the account's bounded library at query time; no separate stale index or cross-user corpus exists.
+
+Deletion first commits a `deleting` tombstone, excluding the document from retrieval; it then removes the private file and deletes the metadata/full text with cascading chunk deletion. A storage or final database failure returns a sanitized 503 and can be retried. Upload transaction failures attempt file cleanup. File storage and PostgreSQL cannot share an atomic transaction: an abrupt process crash during upload can leave an unreferenced private file, requiring operational reconciliation. Do not log request bodies, filenames/headers, extraction exceptions or query contents in reverse proxies/APM. Parser diagnostics are suppressed; application errors are sanitized. Database/filesystem backups have separate retention policies.
+
+### Verification and manual check
+
+Automated API tests use repository doubles with real temporary file storage; SQL ownership filters, PostgreSQL model/migration DDL and cascading constraints are checked offline. No SQLite or live Neon/Google connection is used. A live post-migration database check is still required.
+
+1. Apply the reviewed migration, start the existing API from backend/, then run `npm run dev` from frontend/.
+2. Open `http://127.0.0.1:5173`, sign in with Google and find **Context Library** above the existing landing content.
+3. Upload a text-based PDF, DOCX or UTF-8 TXT résumé. Check name, format and Ready status. Refresh the page; the list should remain.
+4. From the signed-in frontend browser DevTools console, test retrieval (the browser supplies Origin):
+
+```javascript
+await fetch('http://127.0.0.1:8000/api/context/retrieve', {
+  method: 'POST', credentials: 'include',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({query: 'Salesforce integration experience', limit: 5})
+}).then(response => response.json())
+```
+
+Repeat with `leadership experience`; use a résumé containing those facts. Inspect text, document/chunk IDs, score and rank. No result is expected for unrelated terms. Avoid using a shared console with sensitive résumés.
+
+5. Try an empty file, renamed executable, malformed PDF, scanned PDF or file above 5 MiB; expect a useful error and no new document.
+6. Sign out and sign in with another Google account. The first account's list/content must be absent. Request its document ID through delete/retrieval: expect 404/empty results.
+7. Return to the original account, delete the document and confirm removal. Refresh and rerun retrieval: no content remains available. Check the configured private file directory and database for removal if desired.
+8. Check light/dark mode and a narrow viewport; the existing landing page remains unchanged outside the added authenticated library.

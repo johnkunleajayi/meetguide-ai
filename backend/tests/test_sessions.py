@@ -34,7 +34,7 @@ def test_session_model_and_migration_metadata():
     config = Config(str(BACKEND / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0002_sessions"]
+    assert scripts.get_heads() == ["0003_context_library"]
     revision = scripts.get_revision("0002_sessions")
     assert revision.down_revision == "0001_create_users"
     output = StringIO()

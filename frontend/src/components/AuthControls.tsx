@@ -13,7 +13,11 @@ function UserAvatar({ user }: { user: AuthUser }) {
 }
 
 export function AuthControls() {
-  const { state, retry, logout, isSigningOut, logoutError } = useAuth();
+  return <AuthControlsWithState auth={useAuth()} />;
+}
+
+export function AuthControlsWithState({ auth }: { auth: ReturnType<typeof useAuth> }) {
+  const { state, retry, logout, isSigningOut, logoutError } = auth;
   if (state.status === "loading") {
     return <span className="auth-status" role="status">Checking sign-in…</span>;
   }

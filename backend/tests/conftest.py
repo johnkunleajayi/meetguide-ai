@@ -23,6 +23,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "AUTH_STATE_SECRET",
         "SESSION_COOKIE_SECURE",
         "SESSION_TTL_SECONDS",
+        "CONTEXT_STORAGE_DIR",
         "TRANSCRIPTION_PROVIDER",
         "DEEPGRAM_API_KEY",
         "TRANSCRIPTION_MODEL",

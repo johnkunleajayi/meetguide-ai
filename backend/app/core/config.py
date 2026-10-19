@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://127.0.0.1:5173"
     desktop_origin: str = "http://127.0.0.1:1420"
 
+    context_storage_dir: Path = Field(default=ENV_FILE.parent / ".data" / "documents", repr=False)
+
     transcription_provider: Literal["deepgram"] = "deepgram"
     deepgram_api_key: SecretStr | None = Field(default=None, repr=False)
     transcription_model: str = Field(default="nova-3", min_length=1, max_length=80)

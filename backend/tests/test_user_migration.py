@@ -28,7 +28,7 @@ def normalize_sql(sql: str) -> str:
 
 def test_first_migration_remains_root() -> None:
     scripts = migration_script()
-    assert scripts.get_heads() == ["0002_sessions"]
+    assert scripts.get_heads() == ["0003_context_library"]
     revision = scripts.get_revision(REVISION)
     assert revision.down_revision is None
     assert revision.dependencies is None

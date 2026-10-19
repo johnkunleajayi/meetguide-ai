@@ -107,3 +107,5 @@ PostgreSQL is required for real database operations and online migrations. Healt
 The API includes health, configuration, PostgreSQL wiring, User/Session models, migrations, and shared Google authentication for web and desktop. Audio capture, microphone access, system audio, transcription, question detection, AI, meeting sessions, always-on-top behavior, and global shortcuts remain deferred. The desktop Ready label indicates that the shell is available. See `backend/README.md` and `desktop/README.md` for authentication setup and verification.
 
 Both applications use the MeetGuide navy/white/slate/blue identity, keyboard focus styles, readable sans-serif typography, and light/dark mode. Dependencies, builds, Rust targets, generated Tauri schemas, local configuration, caches, logs, IDE files, and toolchains are ignored at the repository root.
+
+Context Library: the authenticated web application supports private résumé upload, local extraction and lexical retrieval. See backend/README.md for migration 0003_context_library, private storage configuration and manual verification. No Live Cue generation is connected yet.

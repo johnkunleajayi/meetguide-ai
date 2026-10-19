@@ -1,3 +1,5 @@
+import { useAuth } from "./hooks/useAuth";
+import { ContextLibrary } from "./components/ContextLibrary";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
@@ -10,7 +12,7 @@ import {
 import { Brand, ButtonLink, Eyebrow } from "./components/ui";
 import { MeetGuidePreview } from "./components/MeetGuidePreview";
 import { ContextSection } from "./components/ContextSection";
-import { AuthControls } from "./components/AuthControls";
+import { AuthControlsWithState } from "./components/AuthControls";
 import { useTheme } from "./hooks/useTheme";
 import { workflow } from "./data/workflow";
 
@@ -39,6 +41,7 @@ const useCases = [
 ];
 
 export default function App() {
+  const auth = useAuth();
   const { theme, toggleTheme } = useTheme();
   return (
     <>
@@ -61,11 +64,12 @@ export default function App() {
             >
               {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <AuthControls />
+            <AuthControlsWithState auth={auth} />
           </div>
         </div>
       </header>
       <main id="main">
+        {auth.state.status === "authenticated" && <ContextLibrary key={auth.state.user.id} />}
         <section className="hero container" id="product">
           <div className="hero-copy">
             <Eyebrow>REAL-TIME CONVERSATION INTELLIGENCE</Eyebrow>

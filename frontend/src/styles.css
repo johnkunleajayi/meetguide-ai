@@ -1249,3 +1249,17 @@ footer {
   .site-header:has(.auth-account) { column-gap: 12px; row-gap: 12px; }
   .site-header:has(.auth-account) .main-nav { margin-top: 5px; }
 }
+
+.context-library { padding-top: 48px; padding-bottom: 24px; }
+.library-panel { padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); font-size: 14px; }
+.library-upload label { display: block; font-weight: 600; }
+.library-upload p, .library-documents p, .library-privacy, .library-empty { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.library-upload-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 18px 0; }
+.library-upload-actions input { color: var(--ink); max-width: 100%; min-width: 0; }
+.library-panel button:disabled { opacity: .55; cursor: wait; }
+.library-documents { list-style: none; padding: 0; margin: 24px 0; }
+.library-documents li { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--line); }
+.library-documents strong { overflow-wrap: anywhere; }
+.library-documents p { margin: 6px 0 0; }
+.library-privacy { border-top: 1px solid var(--line); padding-top: 16px; margin-bottom: 0; }
+@media (max-width: 600px) { .library-panel { padding: 18px; } .library-upload-actions { align-items: stretch; flex-direction: column; } }
