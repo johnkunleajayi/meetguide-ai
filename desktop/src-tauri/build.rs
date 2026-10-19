@@ -6,6 +6,10 @@ fn main() {
             "auth_login",
             "auth_logout",
             "auth_cancel",
+            "audio_devices",
+            "audio_start",
+            "audio_status",
+            "audio_stop",
         ]),
     ))
     .expect("unable to build MeetGuide desktop");

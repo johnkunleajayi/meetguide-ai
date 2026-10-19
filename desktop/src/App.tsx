@@ -1,7 +1,11 @@
+import { useState } from "react";
+import { AudioSession } from "./components/AudioSession";
 import { DesktopAuth } from "./components/DesktopAuth";
 import { useTheme } from "./hooks/useTheme";
 export default function App() {
   const { theme, toggleTheme } = useTheme();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
   return (
     <div className="desktop-shell">
       <header className="shell-header">
@@ -60,39 +64,8 @@ export default function App() {
         <p className="eyebrow">DESKTOP COMPANION</p>
         <h1>MeetGuide AI</h1>
         <p className="tagline">Your real-time AI meeting assistant.</p>
-        <DesktopAuth />
-        <section className="status-panel" aria-label="Desktop status">
-          <div className="status-row">
-            <span className="status-label">Application status</span>
-            <span className="ready">
-              <span className="status-dot" aria-hidden="true" />
-              Ready
-            </span>
-          </div>
-          <div className="session-action">
-            <button
-              className="start-session"
-              disabled
-              aria-describedby="foundation-note"
-            >
-              Start Session
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                aria-hidden="true"
-              >
-                <path d="M5 12h14m-5-5 5 5-5 5" />
-              </svg>
-            </button>
-            <p id="foundation-note">
-              Session controls will be available in a future update.
-            </p>
-          </div>
-        </section>
+        <DesktopAuth onAuthenticatedChange={setAuthenticated} sessionBusy={sessionBusy} />
+        <AudioSession authenticated={authenticated} onBusyChange={setSessionBusy} />
       </main>
       <footer>
         <span>MeetGuide AI</span>

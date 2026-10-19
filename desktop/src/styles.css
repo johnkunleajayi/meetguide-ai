@@ -210,3 +210,22 @@ footer {
 .auth-name, .auth-email { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-name { font-size: 12px; }
 .auth-email { color: var(--muted); font-size: 10px; margin-top: 4px; }
+
+.audio-options { border: 0; margin: 0; padding: 0; min-width: 0; }
+.audio-options legend { font-size: 11px; margin-bottom: 9px; color: var(--ink); }
+.audio-options select { width: 100%; min-height: 38px; padding: 8px 10px; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 11px; text-overflow: ellipsis; }
+.audio-options select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.audio-field { display: block; font-size: 10px; color: var(--muted); margin-top: 14px; }
+.audio-field select { display: block; margin-top: 7px; }
+.audio-refresh { border: 0; padding: 8px 0; margin: 4px 0; background: transparent; color: var(--accent); font: inherit; font-size: 10px; cursor: pointer; }
+.start-session { cursor: pointer; margin-top: 16px; }
+.start-session:disabled, .audio-refresh:disabled { opacity: .55; cursor: not-allowed; }
+.audio-stop { background: var(--surface); color: var(--ink); border: 1px solid var(--border); }
+.audio-level { margin: 17px 0; }
+.audio-level-label { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; color: var(--muted); }
+.audio-level-label > :first-child { color: var(--ink); }
+.audio-level meter { width: 100%; height: 10px; display: block; margin: 8px 0; accent-color: var(--accent); }
+.audio-level meter::-webkit-meter-bar { background: var(--border); border: 0; border-radius: 5px; }
+.audio-level meter::-webkit-meter-optimum-value { background: var(--accent); border-radius: 5px; }
+.session-action .audio-device-name { margin: 0; text-align: left; font-size: 9px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.status-dot.is-listening { box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 15%, transparent); }

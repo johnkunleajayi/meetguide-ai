@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local main window authentication only; no general networking, shell, or credential-store access",
+  "description": "Local main window authentication and local audio control only; no general shell or credential-store access",
   "windows": ["main"],
-  "permissions": ["allow-desktop-auth"]
+  "permissions": ["allow-desktop-auth", "allow-local-audio"]
 }

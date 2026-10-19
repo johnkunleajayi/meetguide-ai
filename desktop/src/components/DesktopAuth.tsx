@@ -3,7 +3,7 @@ import { cancelLogin, login, logout, nativeAvailable, restoreAuth, type AuthUser
 
 type Status = "checking" | "signed-out" | "signed-in" | "signing-in" | "signing-out" | "error" | "browser-preview";
 
-export function DesktopAuth() {
+export function DesktopAuth({ onAuthenticatedChange, sessionBusy = false }: { onAuthenticatedChange?: (value: boolean) => void; sessionBusy?: boolean }) {
   const [status, setStatus] = useState<Status>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +21,8 @@ export function DesktopAuth() {
     });
     return () => { active = false; };
   }, [attempt]);
+
+  useEffect(() => { onAuthenticatedChange?.(status === "signed-in"); }, [status, onAuthenticatedChange]);
 
   async function startLogin() {
     if (busy.current) return;
@@ -65,7 +67,7 @@ export function DesktopAuth() {
         <img className="auth-avatar" src={user.avatar_url} alt="" referrerPolicy="no-referrer" onError={() => setFailedAvatar(user.avatar_url)} /> :
         <span className="auth-avatar auth-initial" aria-hidden="true">{label[0]?.toUpperCase()}</span>}
       <div className="auth-identity"><span className="auth-name" title={label}>{label}</span><span className="auth-email" title={user.email}>{user.email}</span></div>
-      <button className="auth-button" disabled={status === "signing-out"} onClick={signOut}>{status === "signing-out" ? "Signing out…" : "Sign out"}</button>
+      <button className="auth-button" disabled={status === "signing-out" || sessionBusy} onClick={signOut}>{status === "signing-out" ? "Signing out…" : "Sign out"}</button>
     </div>}
     {error && <p className="auth-note auth-error" role="alert">{error}</p>}
     {status === "error" && <button className="auth-button" onClick={() => { setError(null); setStatus("checking"); setAttempt((value) => value + 1); }}>Retry</button>}

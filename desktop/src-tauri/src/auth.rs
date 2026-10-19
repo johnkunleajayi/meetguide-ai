@@ -28,7 +28,7 @@ fn random_secret() -> Zeroizing<String> {
 }
 
 impl AuthService {
-    fn restore(&self) -> Result<Option<User>, &'static str> {
+    pub(crate) fn restore(&self) -> Result<Option<User>, &'static str> {
         let _guard = self
             .operation
             .lock()
@@ -128,9 +128,13 @@ pub async fn auth_login(
     Ok(user)
 }
 #[tauri::command]
-pub async fn auth_logout(service: State<'_, Arc<AuthService>>) -> Result<(), String> {
+pub async fn auth_logout(
+    service: State<'_, Arc<AuthService>>,
+    audio: State<'_, Arc<crate::audio::AudioService>>,
+) -> Result<(), String> {
     let service = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || service.logout())
+    let audio = audio.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || audio.stop_with(|| service.logout()))
         .await
         .map_err(|_| "Authentication task failed. Please restart MeetGuide.".to_owned())?
         .map_err(str::to_owned)
