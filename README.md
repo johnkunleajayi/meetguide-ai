@@ -8,7 +8,7 @@
 meetguide-ai/
 ├── frontend/     MeetGuide web application
 ├── desktop/      MeetGuide desktop companion
-├── backend/      MeetGuide API (empty placeholder)
+├── backend/      MeetGuide FastAPI API
 ├── .gitignore
 └── README.md
 ```
@@ -17,7 +17,7 @@ A single Git repository at the project root contains three independent applicati
 
 - `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. Currently only the verified marketing frontend is implemented.
 - `desktop/`: a separate Windows-first Tauri 2 + React + TypeScript + Vite + Tailwind companion for use during meetings. Currently only a minimal shell is implemented: brand, tagline, Ready status, theme toggle, and a disabled Start Session button.
-- `backend/`: reserved for the shared FastAPI + PostgreSQL API for web and desktop. It contains only `.gitkeep`; FastAPI and database code have not been created.
+- `backend/`: MeetGuide FastAPI API, a modular monolith with PostgreSQL, SQLAlchemy 2.x, psycopg, Alembic, and environment-based settings. Only health/configuration/database infrastructure exists; no domain tables or business features are implemented.
 
 ## Web development
 
@@ -77,8 +77,33 @@ The local toolchain and downloads live under ignored `work/`; they are not commi
 - `desktop/src-tauri/capabilities/default.json`: no privileged API permissions.
 - `desktop/src-tauri/icons/`: branded native application icons.
 
+## Backend development
+
+See [backend/README.md](backend/README.md) for configuration and database prerequisites. Python 3.14.6 was used for verification.
+
+```powershell
+cd C:\Users\JOHN-KUNLE\OneDrive\Desktop\meetguide-ai\backend
+py -3.14 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# Replace the placeholders in .env with your configuration.
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+```
+
+Health: http://127.0.0.1:8000/api/health. Swagger: http://127.0.0.1:8000/docs.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest --basetemp=..\work\pytest-temp
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m alembic heads
+.\.venv\Scripts\python.exe -m alembic upgrade head --sql
+```
+
+PostgreSQL is required for real database operations and online migrations. Health/startup tests and offline Alembic validation do not require a live database. No PostgreSQL installation or SQLite fallback is provided.
+
 ## Foundation scope
 
-No backend, authentication, API connections, database, session logic, audio capture, microphone access, system audio, transcription, question detection, AI, always-on-top behavior, or global shortcuts are implemented. The desktop Ready label means the shell is available, not that those capabilities are connected.
+The API foundation includes only health, configuration, database wiring, and migration infrastructure. No authentication, business tables, client API connections, session logic, audio capture, microphone access, system audio, transcription, question detection, AI, always-on-top behavior, or global shortcuts are implemented. The desktop Ready label means the shell is available, not that those capabilities are connected.
 
 Both applications use the MeetGuide navy/white/slate/blue identity, keyboard focus styles, readable sans-serif typography, and light/dark mode. Dependencies, builds, Rust targets, generated Tauri schemas, local configuration, caches, logs, IDE files, and toolchains are ignored at the repository root.
