@@ -44,6 +44,9 @@ impl Api {
         Ok(Self { base, client })
     }
 
+    pub fn intent_url(&self) -> String {
+        self.endpoint("/api/intent/classify").to_string()
+    }
     pub fn cue_url(&self) -> String {
         self.endpoint("/api/cues/generate").to_string()
     }

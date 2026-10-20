@@ -132,7 +132,7 @@ def test_missing_configuration_without_external_requests(client, monkeypatch):
         "/api/transcription/stream?source=system", headers={"Authorization": "Bearer " + "a" * 43}
     ) as socket:
         event = socket.receive_json()
-        assert "DEEPGRAM_API_KEY" in event["message"] and event["retryable"] is False
+        assert "GEMINI_API_KEY" in event["message"] and event["retryable"] is False
 
 
 def test_normalization_handles_provider_metadata_empty_final_and_invalid_values():
@@ -154,7 +154,12 @@ def test_normalization_handles_provider_metadata_empty_final_and_invalid_values(
 
 
 def test_provider_wire_configuration_is_private_and_streaming(settings, monkeypatch):
-    settings = settings.model_copy(update={"deepgram_api_key": SecretStr("test-only-provider-key")})
+    settings = settings.model_copy(
+        update={
+            "transcription_provider": "deepgram",
+            "deepgram_api_key": SecretStr("test-only-provider-key"),
+        }
+    )
     captured = {}
 
     class Socket:

@@ -38,7 +38,7 @@ pub(crate) fn fingerprint(text: &str) -> String {
         .join(" ")
 }
 
-fn candidate(text: &str, has_context: bool) -> Option<Detection> {
+pub(super) fn candidate(text: &str, has_context: bool) -> Option<Detection> {
     let text = text.trim();
     if text.ends_with("...") || text.ends_with('…') || text.ends_with([',', ':', ';', '-', '—'])
     {
@@ -61,7 +61,7 @@ fn candidate(text: &str, has_context: bool) -> Option<Detection> {
                 | ["can" | "could", "you", "explain", "that"]
                 | ["how", "did", "you", "solve", "that"]
                 | ["why", "is", "that"]
-        ) || tokens.as_slice() == ["why"] && text.ends_with('?'));
+        ) || matches!(tokens.as_slice(), ["why"] | ["how"]) && text.ends_with('?'));
     if follow_up {
         return Some(Detection {
             event_type: EventType::Question,
@@ -83,7 +83,19 @@ fn candidate(text: &str, has_context: bool) -> Option<Detection> {
     if tokens.len() < 4 && !short_complete {
         return None;
     }
+    // A terminal preposition can complete a relative clause, e.g. "you worked on".
+    // Keep rejecting unfinished objects such as "How did you handle the".
+    let relative_ending = tokens.len() >= 7
+        && matches!(
+            &tokens[tokens.len() - 3..],
+            [
+                "you" | "we" | "they" | "i",
+                "worked" | "collaborated" | "participated" | "contributed" | "focused" | "relied",
+                "on" | "in" | "with" | "for"
+            ]
+        );
     if !short_complete
+        && !relative_ending
         && matches!(
             last,
             "the"
@@ -130,6 +142,7 @@ fn candidate(text: &str, has_context: bool) -> Option<Detection> {
                 | "did"
                 | "does"
                 | "you"
+                | "undo"
         )
     {
         return None;
@@ -207,9 +220,7 @@ impl UnderstandingProvider for LocalQuestionDetector {
         let has_context = context
             .iter()
             .any(|item| item.id != turn.id && words(&item.text).len() >= 4);
-        turn.text
-            .split_inclusive(['.', '?', '!', '\n'])
-            .filter_map(|text| candidate(text, has_context))
-            .last()
+        let request = super::assembly::effective_request(&turn.text)?;
+        candidate(&request, has_context)
     }
 }

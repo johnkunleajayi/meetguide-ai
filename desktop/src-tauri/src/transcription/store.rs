@@ -104,6 +104,9 @@ impl TranscriptStore {
             self.snapshot.version += 1;
         }
     }
+    pub fn take_candidates(&mut self) -> Vec<crate::understanding::candidate::Candidate> {
+        self.understanding.take_candidates()
+    }
     pub fn stop_understanding(&mut self) {
         self.understanding.stop();
         self.snapshot.understanding = self.understanding.snapshot.clone();
@@ -283,5 +286,43 @@ mod tests {
         assert!(store.snapshot.understanding.events.is_empty());
         store.reset(&[Source::System]);
         assert!(store.snapshot.understanding.active);
+    }
+}
+
+#[cfg(test)]
+mod spoken_turn_regression {
+    use super::*;
+    #[test]
+    fn split_provider_finals_remain_separate_transcript_entries_but_one_request() {
+        let mut store = TranscriptStore::default();
+        store.reset(&[Source::System]);
+        store.event(
+            Source::System,
+            1,
+            0,
+            0,
+            "Tell me about a Salesforce integration you worked on.",
+            true,
+        );
+        store.clock = Instant::now() - std::time::Duration::from_millis(600);
+        store.event(
+            Source::System,
+            1,
+            600,
+            600,
+            "And challenges you faced.",
+            true,
+        );
+        store.clock = Instant::now() - std::time::Duration::from_millis(2000);
+        store.tick_understanding();
+        assert_eq!(store.snapshot.entries.len(), 2);
+        assert_eq!(store.snapshot.understanding.turns.len(), 1);
+        assert_eq!(store.snapshot.understanding.events.len(), 1);
+        assert!(store.snapshot.understanding.events[0]
+            .text
+            .contains("on and challenges you faced"));
+        let version = store.snapshot.version;
+        store.tick_understanding();
+        assert_eq!(store.snapshot.version, version);
     }
 }

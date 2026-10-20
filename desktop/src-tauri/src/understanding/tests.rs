@@ -100,7 +100,7 @@ fn interim_speech_blocks_pending_question() {
     assert!(e.tick(21300));
 }
 #[test]
-fn duplicates_and_cooldown_are_suppressed() {
+fn duplicates_are_suppressed_while_distinct_questions_continue() {
     let mut e = engine();
     say(
         &mut e,
@@ -140,7 +140,7 @@ fn duplicates_and_cooldown_are_suppressed() {
         "Why did you choose Salesforce?",
         16000,
     );
-    assert!(!e.tick(17200));
+    assert!(e.tick(17200));
     say(
         &mut e,
         Speaker::Them,
@@ -149,7 +149,7 @@ fn duplicates_and_cooldown_are_suppressed() {
         21000,
     );
     assert!(e.tick(22200));
-    assert_eq!(e.snapshot.events.len(), 3);
+    assert_eq!(e.snapshot.events.len(), 4);
 }
 #[test]
 fn context_and_event_memory_are_bounded() {
@@ -182,7 +182,7 @@ fn context_and_event_memory_are_bounded() {
         assert!(e.tick(id * 8000 + 1200));
     }
     assert_eq!(e.snapshot.events.len(), 8);
-    assert_eq!(e.fingerprints.len(), 128);
+    assert!(e.fingerprints.len() <= 128);
     let event = e.snapshot.events.back().unwrap();
     assert!(event.context.len() <= 8);
     assert!(event.context.iter().map(|t| t.text.len()).sum::<usize>() <= 6000);
@@ -302,7 +302,7 @@ fn short_follow_ups_use_context_but_fragments_stay_quiet() {
 }
 
 #[test]
-fn cooldown_defers_a_distinct_follow_up_instead_of_losing_it() {
+fn distinct_followup_is_emitted_without_destructive_cooldown() {
     let mut e = engine();
     say(&mut e, Speaker::Them, 1, "Tell me about the migration.", 0);
     assert!(e.tick(1200));
@@ -314,9 +314,9 @@ fn cooldown_defers_a_distinct_follow_up_instead_of_losing_it() {
         1400,
     );
     say(&mut e, Speaker::Them, 2, "What was the result?", 2000);
-    assert!(!e.tick(3200));
+    assert!(e.tick(3200));
     assert!(!e.tick(7199));
-    assert!(e.tick(7200));
+    assert!(!e.tick(7200));
     assert_eq!(
         e.snapshot.events.back().unwrap().text,
         "What was the result?"

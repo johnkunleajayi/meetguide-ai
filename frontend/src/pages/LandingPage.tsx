@@ -19,7 +19,7 @@ export function LandingPage() {
           <h1 id="hero-title">Stay present.<br />Know what <span>to say.</span></h1>
           <p>MeetGuide listens to the conversation, understands the question, and draws on your experience to prepare a natural answer you can actually speak.</p>
           <div className="marketing-actions"><Link className="marketing-button" to="/app">Prepare your context <ArrowUpRight size={17} aria-hidden="true" /></Link><a className="marketing-text-link" href="#demo">See it in action <ArrowRight size={16} aria-hidden="true" /></a></div>
-          
+
         </div>
         <HeroConversation />
       </div>

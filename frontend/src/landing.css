@@ -31,7 +31,6 @@
 .marketing-text-link { display: inline-flex; align-items: center; gap: 12px; color: var(--ink); font-size: 13px; font-weight: 550; }
 .marketing-text-link svg { transition: transform .2s; }
 .marketing-text-link:hover svg { transform: translateX(4px); }
-.hero-platform { display: flex; align-items: center; gap: 8px; color: var(--marketing-muted); font-size: 11px; margin-top: 22px; }
 .hero-aside { padding-left: 42px; border-left: 1px solid var(--line); justify-self: end; }
 .hero-aside-rule { display: block; width: 30px; height: 2px; margin-bottom: 24px; background: var(--blue); }
 .hero-aside p { font-size: clamp(22px, 2.5vw, 34px); line-height: 1.4; letter-spacing: -.045em; margin-bottom: 22px; }
@@ -86,26 +85,6 @@
 .marketing-eyebrow { font-size: 10px; letter-spacing: .13em; font-weight: 600; color: var(--marketing-accent); margin: 0 0 20px; }
 .public-site h2 { font-weight: 500; font-size: clamp(30px, 3.5vw, 46px); line-height: 1.2; letter-spacing: -.05em; margin: 0; }
 .marketing-section-heading { margin-bottom: 44px; }
-.marketing-flow { padding-block: 112px 100px; }
-.marketing-steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
-.marketing-step-index { display: flex; align-items: center; gap: 14px; color: var(--marketing-muted); font-size: 10px; margin-bottom: 25px; }
-.marketing-step-index > span { height: 1px; background: var(--line); flex: 1; }
-.marketing-steps h3 { font-size: 22px; font-weight: 500; letter-spacing: -.04em; margin: 0 0 16px; }
-.marketing-steps strong { display: block; font-size: 12px; font-weight: 550; margin-bottom: 8px; }
-.marketing-steps p { font-size: 12px; color: var(--marketing-muted); line-height: 1.8; margin-bottom: 0; }
-.marketing-difference { padding-block: 88px; border-block: 1px solid var(--line); background: var(--surface); }
-.answer-comparison { display: grid; grid-template-columns: .8fr 1.2fr; gap: 64px; align-items: center; }
-.comparison-label { font-size: 10px; letter-spacing: .1em; color: var(--marketing-muted); display: flex; align-items: center; gap: 8px; }
-.coaching-example { padding: 20px 0; }
-.coaching-example h3 { font-weight: 450; font-size: 18px; letter-spacing: -.03em; }
-.coaching-example ul { list-style: none; margin: 24px 0; padding: 0; color: var(--marketing-muted); }
-.coaching-example li { border-bottom: 1px solid var(--line); padding: 14px 0; font-size: 17px; }
-.coaching-example li::before { content: "—"; margin-right: 14px; }
-.coaching-example > p:last-child { color: var(--marketing-muted); font-size: 12px; line-height: 1.8; max-width: 290px; }
-.spoken-example { background: var(--marketing-soft); border-left: 2px solid var(--blue); padding: 32px 36px; border-radius: 0 8px 8px 0; }
-.spoken-example .comparison-label { color: var(--marketing-accent); }
-.spoken-example blockquote { margin: 22px 0; font-size: 20px; line-height: 1.65; letter-spacing: -.03em; }
-.comparison-note { color: var(--marketing-muted); font-size: 10px; }
 .marketing-context { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: center; padding-block: 112px; }
 .context-story h2 { margin-bottom: 26px; }
 .context-story > p:not(.marketing-eyebrow) { color: var(--marketing-muted); font-size: 14px; line-height: 1.85; max-width: 440px; }
@@ -139,7 +118,6 @@
 .professional-cases article > svg { color: var(--marketing-accent); flex-shrink: 0; margin-top: 4px; }
 .professional-cases h3 { font-size: 21px; letter-spacing: -.035em; font-weight: 500; margin: 0 0 12px; }
 .professional-cases p { max-width: 390px; font-size: 13px; line-height: 1.8; color: var(--marketing-muted); margin-bottom: 16px; }
-.professional-cases article span { font-size: 11px; color: var(--ink); }
 .marketing-privacy { display: grid; grid-template-columns: 1fr 1.2fr; gap: 80px; border-top: 1px solid var(--line); padding-block: 64px; }
 .privacy-heading > svg { color: var(--marketing-accent); margin-bottom: 20px; }
 .privacy-heading .marketing-eyebrow { font-size: 9px; }
@@ -151,7 +129,6 @@
 .closing-mark { display: grid; place-items: center; width: 40px; height: 40px; font-size: 30px; color: var(--blue); border: 1px solid var(--cue-line); border-radius: 8px; margin: 0 auto 24px; }
 .marketing-closing h2 { font-size: clamp(38px, 4.5vw, 60px); }
 .marketing-closing .marketing-button { margin-top: 30px; }
-.marketing-closing > p:last-child { color: var(--marketing-muted); font-size: 11px; margin-top: 18px; margin-bottom: 0; }
 .public-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; padding-block: 32px; border-top: 1px solid var(--line); }
 .public-footer p { font-size: 11px; color: var(--marketing-muted); margin: 12px 0 0; }
 .public-footer nav { display: flex; gap: 24px; margin-left: auto; font-size: 11px; color: var(--marketing-muted); }
@@ -185,7 +162,6 @@
   .public-site .marketing-hero h1 { font-size: clamp(47px, 9vw, 64px); letter-spacing: -.06em; }
   .marketing-hero-copy > p { font-size: 15px; line-height: 1.8; }
   .hero-aside { display: none; }
-  .hero-platform { font-size: 10px; }
   .marketing-actions { gap: 20px; }
   .marketing-button { padding: 14px 18px; font-size: 12px; }
   .marketing-text-link { font-size: 12px; }
@@ -209,20 +185,9 @@
   .demo-stages li { font-size: 9px; }
   .demo-stages li:last-child { grid-column: span 2; }
   .demo-disclosure { padding-inline: 16px; font-size: 8px; }
-  .marketing-flow, .marketing-context, .marketing-use-cases { padding-block: 64px; }
+  .marketing-context, .marketing-use-cases { padding-block: 64px; }
   .marketing-section-heading { margin-bottom: 32px; }
   .public-site h2 { font-size: 31px; }
-  .marketing-steps { grid-template-columns: 1fr 1fr; gap: 34px 24px; }
-  .marketing-steps h3 { font-size: 20px; }
-  .marketing-step-index { margin-bottom: 18px; }
-  .marketing-difference { padding-block: 56px; }
-  .answer-comparison { grid-template-columns: 1fr; gap: 24px; }
-  .coaching-example { padding: 0; }
-  .coaching-example ul { margin-block: 16px; }
-  .coaching-example li { font-size: 15px; padding-block: 12px; }
-  .coaching-example > p:last-child { max-width: none; }
-  .spoken-example { padding: 24px; }
-  .spoken-example blockquote { font-size: 18px; }
   .marketing-context { grid-template-columns: 1fr; gap: 36px; }
   .context-story > p:not(.marketing-eyebrow) { max-width: none; }
   .context-illustration { max-width: 480px; width: 100%; margin-inline: auto; }
@@ -240,7 +205,6 @@
 }
 @media (max-width: 360px) {
   .public-site .marketing-hero h1 { font-size: 43px; }
-  .marketing-steps { grid-template-columns: 1fr; }
   .demo-evidence-match { margin-left: 0; width: 100%; }
   .demo-answer-footer > span:last-child { display: none; }
   .context-document { margin-right: 0; padding: 18px; }

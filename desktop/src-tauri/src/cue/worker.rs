@@ -1,0 +1,262 @@
+//! Conversation candidates, semantic routing and answer execution are independent
+//! of the UI and the bounded transcript/event display rings.
+use super::{
+    intent::{IntentInput, IntentResult},
+    state::CueService,
+    transport::CueInput,
+};
+use crate::understanding::{
+    candidate::{fingerprint, keys, local_question, Candidate},
+    domain::*,
+};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+struct Turn {
+    id: u64,
+    text: String,
+    card: Option<u64>,
+    question: Option<String>,
+}
+#[derive(Default)]
+pub(super) struct Router {
+    turns: VecDeque<Turn>,
+    seen: VecDeque<(String, Instant, Option<u64>)>,
+    calls: VecDeque<Instant>,
+}
+fn payload(text: String, context: Vec<ConversationTurn>) -> Option<CueInput> {
+    super::input(&MeaningfulEvent {
+        id: 0,
+        event_type: EventType::Question,
+        speaker: Speaker::Them,
+        text,
+        confidence: 0.9,
+        turn_id: 0,
+        detected_at_ms: 0,
+        context,
+    })
+}
+impl Router {
+    pub async fn process<F, Fut>(
+        &mut self,
+        c: Candidate,
+        service: &CueService,
+        epoch: u64,
+        classify: F,
+    ) where
+        F: FnOnce(IntentInput) -> Fut,
+        Fut: std::future::Future<Output = Result<IntentResult, &'static str>>,
+    {
+        let now = Instant::now();
+        self.seen
+            .retain(|(_, at, _)| now.duration_since(*at) < Duration::from_secs(45));
+        let short = c.text.split_whitespace().count() <= 5;
+        let anchor = if short {
+            c.context
+                .iter()
+                .rev()
+                .find(|t| t.speaker == Speaker::You)
+                .map(|t| t.id)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let key = format!("{}:{anchor}", fingerprint(&c.text));
+        if let Some((_, _, card)) = self.seen.iter().find(|(seen, _, _)| *seen == key) {
+            let card = *card;
+            self.remember_turn(c.turn_id, c.text, card, None);
+            return;
+        }
+        let previous = self.turns.iter().find(|turn| turn.id == c.turn_id);
+        let delta = previous
+            .and_then(|p| c.text.strip_prefix(&p.text))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&c.text)
+            .to_owned();
+        let previous_card = previous.and_then(|p| p.card);
+        let previous_request = previous.and_then(|p| p.question.clone());
+        let local_delta = local_question(&delta, &c.context);
+        let linked = delta.split_whitespace().next().is_some_and(|word| {
+            matches!(
+                word.to_lowercase().as_str(),
+                "and" | "but" | "also" | "especially" | "or" | "for" | "with" | "including"
+            )
+        });
+        // A standalone new question is never allowed to overwrite the preceding
+        // logical request merely because assembly kept both in one spoken turn.
+        let continuation = previous_card.is_some()
+            && previous_request.is_some()
+            && (linked || local_delta.is_none());
+        let local = if previous_card.is_some() && local_delta.is_some() {
+            local_delta.clone()
+        } else {
+            c.local.clone()
+        };
+        let tokens = fingerprint(&delta);
+        let references = tokens
+            .split_whitespace()
+            .any(|word| matches!(word, "it" | "that" | "next" | "result"));
+        let semantic = c.revision > 1 || local.is_none() || short || references;
+        let fallback = || {
+            local.clone().map(|question| IntentResult {
+                kind: if continuation && linked {
+                    "CONTINUATION"
+                } else {
+                    "ACTIONABLE_REQUEST"
+                }
+                .into(),
+                normalized_request: if continuation && linked {
+                    c.local.clone().unwrap_or(question)
+                } else {
+                    question
+                },
+                confidence: 0.9,
+            })
+        };
+        let result = if semantic {
+            self.calls
+                .retain(|at| now.duration_since(*at) < Duration::from_secs(60));
+            let classification = if self.calls.len() >= 12 {
+                Err("Intent budget")
+            } else {
+                self.calls.push_back(now);
+                let input = payload(delta.clone(), c.context.clone());
+                if let Some(input) = input {
+                    classify(IntentInput {
+                        text: if previous_card.is_some() {
+                            delta
+                        } else {
+                            c.text.clone()
+                        },
+                        context: input.context,
+                        previous_request: if continuation { previous_request } else { None },
+                        can_continue: continuation,
+                    })
+                    .await
+                } else {
+                    Err("Invalid intent input")
+                }
+            };
+            match classification {
+                Ok(result)
+                    if (result.kind != "CONTINUATION" || continuation)
+                        && result.confidence >= 0.82 =>
+                {
+                    service.notice(epoch, None);
+                    Some(result)
+                }
+                _ => {
+                    service.notice(epoch, Some("Semantic understanding is unavailable. Local question detection remains active."));
+                    fallback()
+                }
+            }
+        } else {
+            fallback()
+        };
+        let mut card = previous_card;
+        let mut question = None;
+        if let Some(mut result) = result {
+            // Clear grammatical extensions of an existing assembled request
+            // remain one logical item even if the provider calls them actionable.
+            if continuation
+                && linked
+                && local_delta.is_none()
+                && c.local.is_some()
+                && result.kind != "NOT_ACTIONABLE"
+            {
+                result.kind = "CONTINUATION".into();
+                result.normalized_request = c.local.clone().expect("local assembled request");
+            }
+            if result.kind != "NOT_ACTIONABLE" && result.confidence >= 0.82 {
+                question = Some(result.normalized_request.clone());
+                if let Some(input) = payload(result.normalized_request, c.context.clone()) {
+                    card = service.enqueue(
+                        epoch,
+                        if result.kind == "CONTINUATION" {
+                            previous_card
+                        } else {
+                            None
+                        },
+                        input,
+                    );
+                }
+            }
+        }
+        self.remember_turn(c.turn_id, c.text.clone(), card, question);
+        for alias in keys(&c.text)
+            .into_iter()
+            .chain(std::iter::once(fingerprint(&c.text)))
+        {
+            self.seen
+                .push_back((format!("{alias}:{anchor}"), now, card));
+        }
+        while self.seen.len() > 128 {
+            self.seen.pop_front();
+        }
+    }
+    fn remember_turn(
+        &mut self,
+        id: u64,
+        text: String,
+        card: Option<u64>,
+        question: Option<String>,
+    ) {
+        if let Some(turn) = self.turns.iter_mut().find(|t| t.id == id) {
+            turn.text = text;
+            turn.card = card;
+            if question.is_some() {
+                turn.question = question;
+            }
+        } else {
+            self.turns.push_back(Turn {
+                id,
+                text,
+                card,
+                question,
+            });
+        }
+        while self.turns.len() > 32 {
+            self.turns.pop_front();
+        }
+    }
+}
+
+pub fn start(store: Arc<Mutex<crate::transcription::TranscriptStore>>, service: Arc<CueService>) {
+    let (epoch, mut cancelled) = service.lifecycle();
+    let answers = service.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut router = Router::default();
+        while service.active(epoch) {
+            let candidates = if let Ok(mut store) = store.lock() {
+                store.tick_understanding();
+                store.take_candidates()
+            } else {
+                vec![]
+            };
+            for candidate in candidates {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.changed() => return,
+                    _ = router.process(candidate, &service, epoch, super::intent::classify) => {}
+                }
+            }
+            tokio::select! { _ = cancelled.changed() => return, _ = tokio::time::sleep(Duration::from_millis(150)) => {} }
+        }
+    });
+    let (_, mut cancelled) = answers.lifecycle();
+    tauri::async_runtime::spawn(async move {
+        while answers.active(epoch) {
+            let gate = tokio::select! { biased; _ = cancelled.changed() => return, gate = answers.gate.lock() => gate };
+            if let Some(job) = answers.next(epoch) {
+                let result = tokio::select! { biased; _ = cancelled.changed() => return, result = super::transport::generate(job.input.clone()) => result };
+                answers.finish(epoch, job, result);
+            }
+            drop(gate);
+            tokio::select! { _ = cancelled.changed() => return, _ = tokio::time::sleep(Duration::from_millis(100)) => {} }
+        }
+    });
+}

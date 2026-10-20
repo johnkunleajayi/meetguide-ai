@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TranscriptPanel } from "../src/components/TranscriptPanel";
+import { clearCue, readCue } from "../src/lib/cue";
 import { readTranscript, type TranscriptSnapshot } from "../src/lib/transcription";
-vi.mock("../src/lib/cue", () => ({ clearCue: vi.fn(), prepareCue: vi.fn(), readCue: vi.fn(async () => ({ sessionId: 0, eventId: 0, status: "idle", answer: null, grounding: null, sourceCount: 0, error: null })) }));
+vi.mock("../src/lib/cue", () => ({ clearCue: vi.fn(), prepareCue: vi.fn(), readCue: vi.fn(async () => ({ sessionId: 1, cards: [], notice: null })) }));
 vi.mock("../src/lib/transcription", async (original) => ({ ...await original<typeof import("../src/lib/transcription")>(), readTranscript: vi.fn() }));
 const partial: TranscriptSnapshot = { version: 1, sessionId: 1, entries: [{ id: 1, source: "system", text: "Interim words", finalText: false, interrupted: false, offsetMs: 0 }], streams: [{ source: "system", state: "streaming", message: null, droppedChunks: 0 }], trimmed: 0, understanding: { active: true, turns: [], events: [], trimmedTurns: 0 } };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(readTranscript).mockResolvedValue(null); });
@@ -77,4 +78,17 @@ it("does not expose reserved opportunity events or questions from You", async ()
   ] } });
   render(<TranscriptPanel authenticated />); await screen.findByText("Interim words");
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("Remove preserves transcript updates and question understanding", async () => {
+  vi.mocked(clearCue).mockResolvedValue();
+  vi.mocked(readCue).mockResolvedValue({ sessionId: 1, notice: null, cards: [{ id: 1, question: "Question?", status: "ready", answer: "I tested the API.", grounding: "general_approach", sourceCount: 0, error: null }] });
+  vi.mocked(readTranscript).mockResolvedValue(detected);
+  render(<TranscriptPanel authenticated />);
+  await screen.findByText("Question detected");
+  fireEvent.click(await screen.findByRole("button", { name: "Remove cue 1" }));
+  await waitFor(() => expect(screen.queryByText("I tested the API.")).toBeNull());
+  expect(screen.getByText("Question detected")).toBeTruthy();
+  vi.mocked(readTranscript).mockResolvedValue({ ...detected, version: 2, entries: [{ ...partial.entries[0], text: "New speech after Remove" }] });
+  await screen.findByText("New speech after Remove"); expect(screen.getByText("Them · streaming")).toBeTruthy();
 });

@@ -32,9 +32,17 @@ class StreamingProvider(Protocol):
 
 
 def get_provider(settings) -> StreamingProvider:
-    # Add future adapters here; transport and clients consume only normalized events.
-    from app.transcription.deepgram import DeepgramProvider
+    # Explicit selection only: provider failures never spend another vendor's quota.
+    if settings.transcription_provider == "gemini":
+        from app.transcription.gemini import GeminiTranscriptionProvider
 
-    if settings.transcription_provider == "deepgram" and settings.deepgram_api_key:
-        return DeepgramProvider(settings)
-    raise ProviderError("Set DEEPGRAM_API_KEY on the backend and restart the API.", False)
+        if settings.gemini_api_key:
+            return GeminiTranscriptionProvider(settings)
+        raise ProviderError("Set GEMINI_API_KEY on the backend and restart the API.", False)
+    if settings.transcription_provider == "deepgram":
+        from app.transcription.deepgram import DeepgramProvider
+
+        if settings.deepgram_api_key:
+            return DeepgramProvider(settings)
+        raise ProviderError("Set DEEPGRAM_API_KEY on the backend and restart the API.", False)
+    raise ProviderError("Unsupported transcription provider configuration.", False)

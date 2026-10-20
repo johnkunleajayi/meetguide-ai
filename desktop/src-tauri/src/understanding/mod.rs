@@ -1,5 +1,9 @@
+mod assembly;
+pub mod candidate;
 mod detector;
 pub mod domain;
+#[cfg(test)]
+mod spoken_turn_tests;
 #[cfg(test)]
 mod tests;
 use detector::{fingerprint, LocalQuestionDetector};
@@ -9,7 +13,7 @@ use std::collections::VecDeque;
 
 pub const SETTLE_MS: u64 = 1200;
 pub const MERGE_GAP_MS: u64 = 3000;
-pub const COOLDOWN_MS: u64 = 6000;
+pub const DUPLICATE_MS: u64 = 45000;
 pub const MAX_TURNS: usize = 32;
 pub const MAX_CONTEXT_BYTES: usize = 24000;
 const THRESHOLD: f32 = 0.82;
@@ -33,9 +37,10 @@ pub struct UnderstandingEngine<P: UnderstandingProvider = LocalQuestionDetector>
     provider: P,
     progress: [Progress; 2],
     seen: VecDeque<(Speaker, u64, u64)>,
-    fingerprints: VecDeque<String>,
-    pending: Option<Pending>,
-    last_event: Option<u64>,
+    fingerprints: VecDeque<(String, u64)>,
+    pending: VecDeque<Pending>,
+    offered: Option<(u64, u64)>,
+    outbox: VecDeque<candidate::Candidate>,
     next_turn: u64,
     next_event: u64,
 }
@@ -52,8 +57,9 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             progress: Default::default(),
             seen: VecDeque::new(),
             fingerprints: VecDeque::new(),
-            pending: None,
-            last_event: None,
+            pending: VecDeque::new(),
+            offered: None,
+            outbox: VecDeque::new(),
             next_turn: 0,
             next_event: 0,
         }
@@ -66,14 +72,16 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
         self.progress = Default::default();
         self.seen.clear();
         self.fingerprints.clear();
-        self.pending = None;
-        self.last_event = None;
+        self.pending.clear();
+        self.offered = None;
+        self.outbox.clear();
         self.next_turn = 0;
         self.next_event = 0;
     }
     pub fn stop(&mut self) {
         self.snapshot.active = false;
-        self.pending = None;
+        self.pending.clear();
+        self.outbox.clear();
     }
     pub fn gap(&mut self, speaker: Speaker) {
         self.progress[speaker.index()] = Progress {
@@ -81,12 +89,15 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             ..Default::default()
         };
         if speaker == Speaker::Them {
-            self.pending = None;
+            self.pending.clear();
         }
     }
     pub fn interim(&mut self, speaker: Speaker, text: &str, now: u64) {
         if !self.snapshot.active {
             return;
+        }
+        if speaker == Speaker::You && !text.trim().is_empty() {
+            self.progress[Speaker::Them.index()].force_new = true;
         }
         let progress = &mut self.progress[speaker.index()];
         if !progress.interim && now.saturating_sub(progress.last_activity) > MERGE_GAP_MS {
@@ -120,7 +131,14 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             return;
         }
         let normalized = fingerprint(text);
-        if normalized == progress.last_text && now.saturating_sub(progress.last_final) < 10000 {
+        if normalized == progress.last_text
+            && now.saturating_sub(progress.last_final) < 10000
+            && self
+                .snapshot
+                .turns
+                .back()
+                .is_some_and(|turn| turn.speaker == speaker)
+        {
             return;
         }
         let continuous =
@@ -138,6 +156,7 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             turn.speaker == speaker
                 && turn.epoch == epoch
                 && continuous
+                && (speaker == Speaker::You || assembly::merge_text(&turn.text, &text))
                 && turn.text.len() + text.len() + 1 <= MAX_TURN_BYTES
         });
         if merge {
@@ -160,7 +179,8 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
         }
         if speaker == Speaker::Them {
             let turn = self.snapshot.turns.back().expect("accepted final turn");
-            self.pending = Some(Pending {
+            self.pending.retain(|pending| pending.turn_id != turn.id);
+            self.pending.push_back(Pending {
                 turn_id: turn.id,
                 revision: turn.revision,
             });
@@ -178,16 +198,34 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             self.snapshot.trimmed_turns += 1;
         }
     }
+    pub fn take_candidates(&mut self) -> Vec<candidate::Candidate> {
+        self.outbox.drain(..).collect()
+    }
     pub fn tick(&mut self, now: u64) -> bool {
+        let progress = &self.progress[Speaker::Them.index()];
+        if !self.snapshot.active
+            || progress.interim
+            || now.saturating_sub(progress.last_activity) < SETTLE_MS
+        {
+            return false;
+        }
+        let count = self.pending.len();
+        let mut changed = false;
+        for _ in 0..count {
+            changed |= self.process_pending(now);
+        }
+        changed
+    }
+    fn process_pending(&mut self, now: u64) -> bool {
         if !self.snapshot.active {
             return false;
         }
-        let Some(pending) = self.pending.take() else {
+        let Some(pending) = self.pending.pop_front() else {
             return false;
         };
         let progress = &self.progress[Speaker::Them.index()];
         if progress.interim || now.saturating_sub(progress.last_activity) < SETTLE_MS {
-            self.pending = Some(pending);
+            self.pending.push_front(pending);
             return false;
         }
         let Some(turn) = self
@@ -198,8 +236,29 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
         else {
             return false;
         };
-        let context = recent_context(&self.snapshot.turns);
-        let Some(candidate) = self.provider.analyze(turn, &context) else {
+        let earlier = self
+            .snapshot
+            .turns
+            .iter()
+            .filter(|item| item.id <= turn.id)
+            .cloned()
+            .collect();
+        let context = recent_context(&earlier);
+        let detection = self.provider.analyze(turn, &context);
+        if self.offered != Some((turn.id, turn.revision)) && candidate::meaningful(turn) {
+            self.offered = Some((turn.id, turn.revision));
+            self.outbox.push_back(candidate::Candidate {
+                turn_id: turn.id,
+                revision: turn.revision,
+                text: turn.text.clone(),
+                context: context.clone(),
+                local: detection
+                    .as_ref()
+                    .filter(|item| item.confidence >= THRESHOLD && item.confidence.is_finite())
+                    .map(|item| item.text.clone()),
+            });
+        }
+        let Some(candidate) = detection else {
             return false;
         };
         if candidate.event_type != EventType::Question
@@ -215,6 +274,7 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
         if matches!(
             key.as_str(),
             "why"
+                | "how"
                 | "what happened next"
                 | "request you explain that"
                 | "how did you solve that"
@@ -228,24 +288,31 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
                 key = format!("{key}:answer:{}", answer.id);
             }
         }
-        if key.is_empty() || self.fingerprints.contains(&key) {
+        self.fingerprints
+            .retain(|(_, at)| now.saturating_sub(*at) < DUPLICATE_MS);
+        if key.is_empty() || self.fingerprints.iter().any(|(seen, _)| seen == &key) {
             return false;
         }
-        if self
-            .last_event
-            .is_some_and(|last| now.saturating_sub(last) < COOLDOWN_MS)
+        let enrichment = self
+            .snapshot
+            .events
+            .back()
+            .is_some_and(|event| event.turn_id == turn.id);
+        for alias in assembly::prefix_keys(&turn.text)
+            .into_iter()
+            .chain(std::iter::once(key))
         {
-            // Debounce distinct questions rather than silently losing a follow-up.
-            self.pending = Some(pending);
-            return false;
+            if !self.fingerprints.iter().any(|(seen, _)| seen == &alias) {
+                self.fingerprints.push_back((alias, now));
+            }
+            if self.fingerprints.len() > 128 {
+                self.fingerprints.pop_front();
+            }
         }
-        self.progress[Speaker::Them.index()].force_new = true;
-        self.fingerprints.push_back(key);
-        if self.fingerprints.len() > 128 {
-            self.fingerprints.pop_front();
-        }
-        self.last_event = Some(now);
         self.next_event += 1;
+        if enrichment {
+            self.snapshot.events.pop_back();
+        }
         self.snapshot.events.push_back(MeaningfulEvent {
             id: self.next_event,
             event_type: EventType::Question,

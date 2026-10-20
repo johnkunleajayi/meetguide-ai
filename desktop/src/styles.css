@@ -259,3 +259,9 @@ footer {
 
 .live-cue-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 .live-cue-actions .audio-refresh { margin: 0; padding: 5px 9px; font-size: 11px; }
+
+.cue-feed { margin-top: 18px; }
+.cue-feed-scroll { max-height: 560px; overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 4px; }
+.cue-feed-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cue-feed .live-cue { margin-top: 12px; }
+@media (max-width: 480px) { .cue-feed-scroll { max-height: 70vh; } }

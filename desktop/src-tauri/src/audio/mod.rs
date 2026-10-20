@@ -83,6 +83,9 @@ impl AudioService {
             store.snapshot.session_id
         };
         self.cues.reset(relay.as_ref().map(|_| session_id));
+        if relay.is_some() {
+            crate::cue::start(transcript.clone(), self.cues.clone());
+        }
         let cues = self.cues.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
@@ -137,6 +140,10 @@ impl AudioService {
                 }
             })
             .map_err(|_| {
+                self.cues.reset(None);
+                if let Ok(mut store) = self.transcript.lock() {
+                    store.stop_understanding();
+                }
                 if let Ok(mut state) = self.snapshot.lock() {
                     *state = CaptureStatus {
                         state: CaptureState::Error,
@@ -150,6 +157,10 @@ impl AudioService {
         match receiver.recv_timeout(Duration::from_secs(15)) {
             Ok(Ok(())) => self.status(),
             outcome => {
+                self.cues.reset(None);
+                if let Ok(mut store) = self.transcript.lock() {
+                    store.stop_understanding();
+                }
                 if let Some(job) = worker.take() {
                     job.stop.store(true, Ordering::Release);
                     let _ = job.handle.join();

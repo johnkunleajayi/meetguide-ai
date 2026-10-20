@@ -16,11 +16,13 @@ class CueInput(BaseModel):
     speaker: Literal["them"]
     finalized: Literal[True]
     confidence: float = Field(ge=0.82, le=1, allow_inf_nan=False)
-    question: str = Field(min_length=8, max_length=1600, repr=False)
+    question: str = Field(min_length=4, max_length=1600, repr=False)
     context: list[Turn] = Field(default_factory=list, max_length=6, repr=False)
 
     @model_validator(mode="after")
     def bounded_context(self):
+        if len(self.question) < 8 and not self.context:
+            raise ValueError("A short follow-up requires recent conversation context")
         if sum(len(turn.text) for turn in self.context) > 4000:
             raise ValueError("Conversation context is too long")
         return self

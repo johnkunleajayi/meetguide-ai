@@ -51,9 +51,9 @@ class GeminiProvider:
         self.settings, self.transport = settings, transport
 
     async def generate(self, system: str, user: str) -> Draft:
-        return await self._request(system, user, Draft, 2200)
+        return await self.request_json(system, user, Draft, 2200)
 
-    async def _request(self, system: str, user: str, response_model, token_limit: int):
+    async def request_json(self, system: str, user: str, response_model, token_limit: int):
         if not self.settings.gemini_api_key:
             raise unavailable("KEY_NOT_CONFIGURED")
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.settings.live_cue_model}:generateContent"

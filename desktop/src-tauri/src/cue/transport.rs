@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CueTurn {
     pub speaker: &'static str,
     pub text: String,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CueInput {
     #[serde(rename = "type")]
     pub event_type: &'static str,

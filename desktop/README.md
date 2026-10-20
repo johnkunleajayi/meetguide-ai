@@ -70,13 +70,13 @@ Automated checks: `npm run typecheck`, `npm run build`, `npm run test`; with the
 
 The current Start Session flow includes live transcription. Existing WASAPI capture stays native, with independent system and microphone streams. Each is downmixed separately and resampled with an anti-aliased streaming sinc filter to 16 kHz mono PCM16, then sent in 20 ms packets to the authenticated MeetGuide relay. System Audio is labeled **Them**; Microphone is **You**. These labels identify the source, not speaker diarization (system output can contain several meeting participants).
 
-The first adapter uses Deepgram Nova-3 Listen v1. Provider credentials are **backend-only**. The provider interface and normalized event contract are in `backend/app/transcription/`; changing providers does not require replacing WASAPI or the desktop transcript UI. The desktop only knows the MeetGuide relay protocol.
+The default adapter uses Gemini 3.5 Transcribe Live; Deepgram Nova-3 remains a deliberately configured dormant alternative. Provider credentials are **backend-only**. The provider interface and normalized event contract are in `backend/app/transcription/`; changing providers does not require replacing WASAPI or the desktop transcript UI. The desktop only knows the MeetGuide relay protocol.
 
 ### Required manual provider setup
 
-1. Create a Deepgram account/project and a key authorized for Speech-to-Text streaming. Ensure the account has sufficient quota/credit and access to Nova-3.
-2. Add `DEEPGRAM_API_KEY=<your-real-key>` to the existing **untracked** `backend/.env`. Do not replace the file or change Neon/Google values. Do not put this key in a Vite variable, desktop source, command-line argument, or Git.
-3. Defaults are `TRANSCRIPTION_PROVIDER=deepgram`, `TRANSCRIPTION_MODEL=nova-3`, `TRANSCRIPTION_LANGUAGE=en-US`. Optional backend environment overrides can change model/language. Leave the defaults initially.
+1. Confirm the existing backend-only Gemini API key has access/quota for `gemini-3.5-transcribe-live`. Never put a provider key in desktop/Vite configuration.
+2. In the existing ignored `backend/.env`, manually set `TRANSCRIPTION_PROVIDER=gemini` and `GEMINI_TRANSCRIBE_MODEL=gemini-3.5-transcribe-live`; retain `TRANSCRIPTION_LANGUAGE=en-US`. Do not change Google/Neon/key values.
+3. Gemini is the code default, but an existing explicit `TRANSCRIPTION_PROVIDER=deepgram` overrides it. Remove/change that value to test Gemini. Deepgram never activates automatically on failure.
 4. Install updated backend requirements and restart the API from `backend/`:
 
 ```powershell
@@ -92,7 +92,7 @@ Missing/invalid provider configuration is shown in the transcript panel; audio c
 
 - Start creates clean transcript state and one relay connection per selected source. Interims update in place; finals become immutable entries. Both mode never mixes source audio or text. The panel follows new text unless scrolled up; Follow latest resumes it.
 - Stop first ends capture, sends a short conversion tail, drains bounded queued audio and requests final results with a bounded two-second grace period. Late/missing partials are marked Interrupted. A restart clears the preceding session. Logout/window close stop streams; logout clears transcript state even if backend logout later fails.
-- There is no local audio file, transcript file, PostgreSQL transcript storage, transcript logging, or offline recording. Audio now **leaves the device** via the MeetGuide relay for provider processing. Provider requests set `mip_opt_out=true`; see Deepgram's current data-retention policy and verify this flag in provider request metadata. Avoid websocket/frame debug logging and keep HTTPS/WSS outside loopback development.
+- There is no local audio file, transcript file, PostgreSQL transcript storage, transcript logging, or offline recording. Audio now **leaves the device** via the MeetGuide relay for provider processing. The configured provider processes live audio; review its current account data-use and retention policy. Gemini uses VERBATIM output, automatic server VAD and generic technical vocabulary; local spoken-turn assembly remains unchanged. Connection renewal before the ten-minute provider limit may cause a short visible gap; stale audio is not replayed. Avoid websocket/frame debug logging and keep HTTPS/WSS outside loopback development.
 - Capture never waits for network I/O. Each stream queue is capped at 50 packets (~one second). On overload or disconnect, unsent audio is discarded, the gap is shown, and a fresh connection is attempted with backoff up to 15 seconds. Lost speech is not reconstructed or silently replayed. Terminal key/account/session errors require configuration/sign-in and a new session.
 - During silence, realtime zero packets allow endpointing; backend keepalives preserve idle connections. Backend sessions are revalidated at least every 60 seconds with short-lived DB transactions. No database connection is held open during provider processing.
 - Transcript history is session-local and bounded to the latest 200 entries / 64 KiB of text. Older entries are discarded with a visible notice. This is not meeting memory or an export/archive. Timings/order are approximate across independently connected sources. Real provider accuracy, latency and long-meeting performance require live evaluation.
@@ -109,17 +109,17 @@ Missing/invalid provider configuration is shown in the transcript panel; audio c
 8. Sign out during capture, then sign in again. Confirm capture/transcription stopped and old text was cleared. Test native window close/reopen as well.
 9. Run a 30+ minute meeting to evaluate real latency, accuracy, endpoint selection and stable resource use. The bounded recent-history notice is expected during sufficiently long conversations.
 
-Automated tests use synthetic PCM, a local fake WebSocket relay and mocked provider responses. They validate transport/lifecycle/source separation but do not claim real Deepgram transcription accuracy. The audio-only opt-in hardware smoke test remains offline and never streams real microphone audio to a provider.
+Automated tests use synthetic PCM, a local fake WebSocket relay and mocked provider responses. They validate transport/lifecycle/source separation but do not claim real Gemini transcription accuracy. The audio-only opt-in hardware smoke test remains offline and never streams real microphone audio to a provider.
 
 ## Conversation understanding foundation
 
-Final transcript segments feed a native in-memory engine (`src-tauri/src/understanding/`). Nearby fragments from the same source/connection merge (up to a 3-second activity gap); an intervening source, connection gap or oversized turn starts a new turn. Interims never become context/events and block detection while active.
+Final transcript segments feed a native in-memory engine (`src-tauri/src/understanding/`). Nearby fragments from the same source/connection assemble within a 3-second activity gap. Incomplete speech can continue; a completed request accepts linked qualifiers or follow-on questions. Ordinary new sentences and fresh commands remain separate. An intervening answer (including microphone interim speech), connection gap, new epoch or oversized turn prevents merging. Interims never become context/events and block detection while active.
 
 Context retains at most 32 turns / 24 KB; individual turns are capped at 4 KB. Each event snapshots at most 8 recent turns / 6 KB. The event ring retains 8 events. Nothing is persisted. Start/restart resets context/events; Stop cancels processing while leaving the last session visible. Logout clears text; shutdown stops processing.
 
-The first `UnderstandingProvider` uses conservative English question/request rules, not an LLM. Only **Them** generates questions. A 1.2-second quiet debounce, incomplete-fragment guards, minimum heuristic confidence 0.82, 6-second cooldown and bounded 128-question normalized duplicate cache limit noise. Confidence is rule strength, not a probability. Ambiguous/indirect questions and other languages may be missed. Connection gaps cancel pending detection.
+The first `UnderstandingProvider` uses conservative English question/request rules, not an LLM. Only **Them** generates questions. A 1.2-second quiet debounce, incomplete-fragment guards, minimum heuristic confidence 0.82 and a bounded 128-key normalized duplicate cache with 45-second expiry limit noise. Distinct validated questions no longer wait behind a detection cooldown; they enter the session FIFO. Confidence is rule strength, not a probability. Ambiguous/indirect questions and other languages may be missed. Connection gaps cancel pending detection.
 
-A small **Question detected** indication shows the latest event. Reserved event types have no detectors or suggestions. No AI client, answers, summaries or new external calls are involved.
+A small **Question detected** indication shows the latest event. Reserved opportunity event types still have no suggestions. Settled uncertain requests can reach the separate backend Gemini intent classifier; it never receives résumé excerpts or previous cue answers.
 
 ### Manual understanding check
 
@@ -128,16 +128,16 @@ A small **Question detected** indication shows the latest event. Reserved event 
 3. Speak a microphone reply or question. Expect **You**, without a new detected question.
 4. Test “Tell me about yourself.” and “What would you do differently” from system audio, allowing over 6 seconds between questions. Expect detection without needing a question mark.
 5. Test a statement and incomplete “Can you explain…”; expect no new event. Complete it naturally to check fragment merging. Continuous interim speech must not emit early.
-6. Repeat a detected question (including punctuation/case changes): no new event. Two different questions within 6 seconds: the second is deliberately suppressed.
+6. Repeat a detected question (including punctuation/case changes): no new event. Two different questions in quick succession must both enter the queue. Repeat the request after the 45-second duplicate window to check that suppression is not permanent.
 7. Stop: no further events, even during final transcription flush. Restart: context/indication start clean and the same question may be detected again. Logout: text/indication disappear. Close/reopen: no conversation content is restored.
 
-Tests verify event counts/context bounds; the UI shows only the latest question, not event history. Real acoustic/ASR behavior requires the manual check.
+Tests verify event counts/context bounds independently of the session cue feed, which retains all completed cards until Remove or session end. Real acoustic/ASR behavior requires the manual check.
 
 ## Personalized Live Cue
 
 A sufficiently confident finalized Them question now prepares a ready-to-speak answer through the authenticated MeetGuide backend. The native layer reads the existing session credential from Windows Credential Manager; React never receives it. The workspace shows Preparing answer, then readable paragraphs and a small document-excerpt/general-approach indicator. Errors offer an explicit Retry answer button without stopping transcription.
 
-Native session/event IDs prevent duplicate generation and mismatched results. A newer question supersedes the previous request; UI rendering also requires matching session/event IDs. Stop/restart/logout and window close invalidate pending native work and clear cues. No cue is stored on disk or in PostgreSQL. Cancellation is best effort after a provider has received a request.
+Native session/event IDs prevent duplicate generation and mismatched results. Distinct requests enter FIFO order; they do not supersede each other. Continuations update only their related logical request. UI rendering requires the active session identity. Stop/restart/logout and window close invalidate pending native work and clear cues. No cue is stored on disk or in PostgreSQL. Cancellation is best effort after a provider has received a request.
 
 Generation is disabled until the backend is configured. See backend/README.md, Personalized Live Cue, for exact environment variables, free-tier privacy/cost implications and safe fictional-data test steps. Do not test free-tier Gemini with a real résumé or private meeting. No desktop key or new npm/Rust dependency is required. The existing transcription/understanding path remains independent of provider failures.
 
@@ -167,10 +167,24 @@ Before production: configure the backend Google redirect URI to its deployed HTT
 Installer output: `src-tauri/target/release/bundle/nsis/`. This beta is unsigned: Windows may show SmartScreen and Unknown Publisher warnings. No updater or signing configuration is included. No website download link is published until a public HTTPS installer URL is selected. Manually test installation, launch, Google login, audio, transcription and Live Cue before distributing.
 
 
-### Live Cue flow controls
+### Session cue flow and semantic intent
 
-Ready answers remain readable until Clear or the next detected question; they do not block detection. Clear dismisses only the current cue and its question indicator, invalidates late results and retains the event ID to prevent replay. Audio, transcription, rolling context and uploaded documents are untouched.
+The native candidate outbox, FIFO question queue and cue-card collection are separate from bounded transcript/context rings. The UI does not drive generation or read only the newest event. One answer request executes at a time. Every distinct validated question is queued; failures do not block the following question and have an explicit Retry action.
 
-Native cue transport is serialized: one request is sent at a time. A newer question immediately replaces the visible question/preparing state; only the latest waiting question is retained. An already sent request drains to completion or its 35-second client timeout, with superseded results discarded. Queued requests are invalidated on Clear, Stop, restart or logout. An already sent request cannot be recalled from the provider. No additional backend/provider architecture is introduced.
+Completed cards accumulate in memory without count/time pruning. Remove affects only that card, not audio, transcripts, conversation understanding or unrelated queued questions. Clear all is deferred. Stop, new session, logout and close reset the native collection and invalidate in-flight results. Nothing is restored on app restart. Completed requests release redundant transcript payload context. A reader scrolling older cards is not pulled away; View latest is offered for new arrivals.
 
-The 1.2-second quiet debounce and six-second detection cooldown remain. Valid distinct questions inside cooldown are deferred rather than discarded. Short complete follow-ups use recent conversation context; a bare unpunctuated “Why” remains a fragment. Repeated short follow-ups against the same answer are deduplicated, while a different finalized You turn can supply a new referent.
+Local assembly remains first (3-second merge window; 1.2-second quiet debounce). Obvious complete questions stay local. Acknowledgements, duplicate finals and You speech never trigger semantic calls. Meaningful uncertain turns, fragment assemblies, continuations and contextual follow-ups may call the authenticated backend `/api/intent/classify`. A false local result does not automatically discard meaningful speech. Native requests contain at most 1,600 candidate characters, six recent transcript turns / 4,000 characters and one eligible previous request. They contain no cue answers or Context Library documents.
+
+Gemini intent shares the backend Gemini model/key and returns ACTIONABLE_REQUEST, CONTINUATION, FOLLOW_UP or NOT_ACTIONABLE, a normalized request and confidence. Eligible continuation updates preserve one logical cue; unrelated questions cannot overwrite it. Unsent revisions coalesce; an active obsolete revision finishes without publishing stale text, then the enriched request is generated through the same gate. An existing completed answer stays readable during an update.
+
+Intent calls are serialized and limited to 12 per rolling minute per desktop session, with an 8-second backend / 10-second native HTTP timeout and small structured output. Disabled intent, unavailable network, quota, malformed/low-confidence output or budget exhaustion falls back to local detection and surfaces a restrained notice. Unknown semantic requests may be missed during an outage; known local questions and transcription continue. Optional `GEMINI_INTENT_ENABLED=false` on the backend disables semantic intent only. Do not put provider credentials in desktop configuration.
+
+### Spoken-turn assembly check
+
+Play “Tell me about a Salesforce integration you worked on.” followed within three seconds by “And challenges you faced.” The transcript keeps two original finals; the detected request includes both parts. The quiet debounce remains 1.2 seconds from the latest speech activity; MeetGuide does not wait out the full merge window.
+
+If the first part was already detected, the continuation enriches the same logical request. Pending unsent work is superseded; already sent work uses the existing single-request gate and cannot publish its obsolete result. One logical card is retained for the request. A separate answer or a long pause creates a separate follow-up. Prefix and complete request fingerprints suppress immediate replay even if ASR changes segmentation; they expire after 45 seconds. Raw transcript entries are never rewritten or persisted by assembly.
+
+### Gemini baseline manual regression
+
+After backend restart, launch the development desktop (the existing installer is not rebuilt). Test System, Microphone and Both separately; labels remain Them and You. Using non-sensitive test material, speak each once: (A) Tell me about a Salesforce integration you worked on and challenges you faced. (B) How did you handle the Salesforce migration? (C) Tell me about yourself. (D) Tell me about a Salesforce integration you worked on... [natural pause] And challenges you faced. Compare interim/final quality, fragmentation, time to Question detected, time to Ready to speak, and distinct retained cue cards without removing prior cards. Live Cue/intent require their existing backend configuration. Verify Stop/restart/sign-out clears session state; interrupt networking then restore it to check visible reconnect gaps without stale replay. Test beyond ten minutes to observe renewal. Provider usage should appear only in Gemini, with no Deepgram connection or audio consumption. These are manual checks, not claimed automated results.

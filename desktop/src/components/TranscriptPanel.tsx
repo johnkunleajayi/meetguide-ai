@@ -4,7 +4,6 @@ import { readTranscript, sourceLabel, type TranscriptSnapshot } from "../lib/tra
 
 export function TranscriptPanel({ authenticated }: { authenticated: boolean }) {
   const [snapshot, setSnapshot] = useState<TranscriptSnapshot | null>(null);
-  const [dismissedQuestion, setDismissedQuestion] = useState("");
   const [error, setError] = useState(false);
   const [following, setFollowing] = useState(true);
   const follow = useRef(true);
@@ -51,8 +50,8 @@ export function TranscriptPanel({ authenticated }: { authenticated: boolean }) {
       </div>)}
       {error && <p role="alert">Unable to read transcription status. Check the desktop connection.</p>}
     </div>
-    {question && authenticated && snapshot?.understanding.active && dismissedQuestion !== `${snapshot.sessionId}:${question.id}` && <aside className="question-indicator" role="status"><strong>Question detected</strong><p>{question.text}</p></aside>}
-    <LiveCue sessionId={snapshot?.sessionId ?? 0} event={question} active={authenticated && !!snapshot?.understanding.active} onClear={(sessionId, eventId) => setDismissedQuestion(`${sessionId}:${eventId}`)} />
+    {question && authenticated && snapshot?.understanding.active && <aside className="question-indicator" role="status"><strong>Question detected</strong><p>{question.text}</p></aside>}
+    <LiveCue sessionId={snapshot?.sessionId ?? 0} active={authenticated && !!snapshot?.understanding.active} />
     <div className="transcript-scroll" ref={scroller} tabIndex={0} aria-label="Conversation transcript" onScroll={() => {
       const element = scroller.current;
       if (!element) return;

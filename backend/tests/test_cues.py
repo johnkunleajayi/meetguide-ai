@@ -378,3 +378,24 @@ def test_safe_grounding_diagnostic_distinguishes_local_rejection(caplog):
         asyncio.run(generate_cue(InvalidProvider(), payload(), []))
     assert "Live Cue validation: attempt=2 reason=Personal history without evidence" in caplog.text
     assert "private-example" not in caplog.text
+
+
+def test_short_finalized_followup_uses_context_and_preserves_input_guards(cue_api):
+    client, provider, *_ = cue_api
+    body = payload().model_dump()
+    body["question"] = "Why?"
+    assert post(client, body).status_code == 422
+    assert not provider.calls
+    body["context"] = [{"speaker": "you", "text": "I developed Salesforce integrations."}]
+    for invalid in [
+        {"finalized": False},
+        {"confidence": 0.5},
+        {"speaker": "you"},
+        {"question": "Wh"},
+    ]:
+        assert post(client, {**body, **invalid}).status_code == 422
+    assert not provider.calls
+    response = post(client, body)
+    assert response.status_code == 200
+    assert len(provider.calls) == 1
+    assert provider.calls[0][1]["question"] == "Why?"

@@ -135,9 +135,25 @@ Desktop session tokens are kept by Rust in Windows Credential Manager and never 
 
 `WS /api/transcription/stream?source=system|microphone` accepts only an explicit native `Authorization: Bearer <MeetGuide session>` header, never a browser cookie/query token. Browser Origin requests are rejected. After session validation, the relay opens the configured provider and sends `ready`. Clients then send bounded binary mono PCM16 at 16 kHz. Normalized `transcript` events contain `source`, `segment` (milliseconds relative to this connection), `text`, and `final`; partials may replace the same segment until final. `{"type":"finish"}` flushes final text, followed by `done`.
 
-The provider boundary is `app/transcription/provider.py`; the initial adapter is `deepgram.py` (Nova-3 Listen v1 with interim results, endpointing and `mip_opt_out=true`). `api.py` owns native authentication, framing, periodic session revalidation, cancellation and cleanup. The adapter owns provider wire details. Add a future adapter/factory entry without changing capture or UI. No business tables/migrations are added.
+The provider boundary is `app/transcription/provider.py`. Default `gemini.py` uses the dedicated Gemini Live WebSocket transcription API, `gemini-3.5-transcribe-live`, with backend-only `GEMINI_API_KEY`. `deepgram.py` remains a dormant Nova-3 alternative. Selection is explicit; failures NEVER fall back to Deepgram. `api.py` continues to own authentication, framing, periodic session revalidation and cleanup. No migration is needed.
 
-Set a real **server-only** `DEEPGRAM_API_KEY` in the existing ignored environment configuration; do not overwrite Google/Neon settings. Defaults: `TRANSCRIPTION_PROVIDER=deepgram`, `TRANSCRIPTION_MODEL=nova-3`, `TRANSCRIPTION_LANGUAGE=en-US`. See `../desktop/README.md` for the exact setup/run/test commands. Provider credentials are not returned to clients. Missing configuration returns an actionable, non-retryable error; transient failures permit native reconnection.
+Manually set these non-secret values in the existing ignored backend environment, keeping all real credentials unchanged:
+
+```dotenv
+TRANSCRIPTION_PROVIDER=gemini
+GEMINI_TRANSCRIBE_MODEL=gemini-3.5-transcribe-live
+TRANSCRIPTION_LANGUAGE=en-US
+```
+
+The existing backend `GEMINI_API_KEY` is reused. Restart the API after changing selection. To deliberately use the dormant adapter instead, set `TRANSCRIPTION_PROVIDER=deepgram` with `DEEPGRAM_API_KEY` and `TRANSCRIPTION_MODEL=nova-3`. No automatic fallback or parallel provider usage occurs.
+
+Gemini receives 100 ms batches of mono signed 16-bit little-endian PCM at 16 kHz, encoded as base64 in Live realtimeInput messages. No additional transcoding is performed. VERBATIM is intentional for the initial baseline: SMART can remove false starts/repetitions and resolve corrections, potentially changing request boundaries before local assembly. Automatic server VAD uses its provider defaults; no manual/hybrid endpointing or artificial per-sentence stream endings are added. Local 1.2-second quiet debounce / 3-second assembly remain unchanged. Generic vocabulary biasing includes Salesforce, Service Cloud, Sales Cloud, HubSpot, Zapier, Zendesk, Paystack, RevOps, Apex, SOQL, LWC and Omni-Channel; no private document vocabulary is supplied.
+
+`interimInputTranscription` replaces the current hypothesis; `inputTranscription` finalizes it. Both arriving in one message are retained in order. Gemini Live has no word timestamps/confidence: segment identity uses monotonically increasing receipt-relative milliseconds (approximate, not speech-alignment timestamps), stable across interim/final updates. Separate finalized fragments remain separate events for the existing turn assembler.
+
+Before the documented ten-minute upstream session limit, the adapter requests reconnection at 9.5 minutes; provider goAway does the same. Existing native backoff (up to 15 seconds) and new connection epochs discard stale queued audio. This renewal is not seamless: short visible gaps may lose speech and require long-meeting manual testing. Auth/configuration/quota errors are terminal until corrected and restarted; network failures reconnect without changing provider. No provider response bodies or credentials are logged. Setup acknowledgement is bounded to eight seconds, audio writes to three seconds; idle receive remains open because silence is valid.
+
+Official wire contract: https://ai.google.dev/gemini-api/docs/live-api/live-transcribe . Provider audio processing is required; review Google account data-use/quota terms before using private audio. Automated tests use fake sockets only and do not prove live model access, quality, latency or free quota.
 
 Use the installed `websockets` transport with Uvicorn's `--ws websockets-sansio --ws-max-size 8192 --ws-max-queue 8 --no-access-log --log-level warning`. Reverse proxies must support long-lived authenticated WebSockets; use TLS outside loopback development. Do not enable frame/body/header debug logs. Provider wire logging is explicitly disabled. Audio/transcripts exist only in bounded process/network buffers and are never written to files or PostgreSQL. The provider necessarily processes audio; request opt-out and retention behavior must be verified against the provider account/policy.
 
@@ -242,10 +258,23 @@ Application state remains in memory. Request bodies, provider errors, prompts an
 2. In the web app, upload a small fictional TXT CV with complete factual lines, for example: `Developed Salesforce integrations with external APIs.` and `Managed a team of six engineers.` Avoid real contact details.
 3. Configure the variables above with an eligible test key, keeping billing disabled if free quota is available. Restart the existing API, then run `./start-desktop.ps1` from the project root and sign in with that same test account.
 4. Start System Audio or Both, using headphones. Play a synthetic/system-audio question: 'How did you handle the Salesforce integration?' Wait for finalized Them text, question detection, then Preparing answer and a readable two-paragraph answer. Microphone-only questions must not trigger a cue.
-5. Speak a fictional reply mentioning the integration, then play 'What was the biggest challenge?' Allow over six seconds between detected questions (the existing understanding cooldown). Check that the cue follows the subject without inventing an undocumented challenge/result.
+5. Speak a fictional reply mentioning the integration, then play 'What was the biggest challenge?' Distinct questions now queue without a detection cooldown. Check that the cue follows the subject without inventing an undocumented challenge/result.
 6. Ask about an unsupported system such as SAP S/4HANA. Expect an honest bridge/transferable documented fact plus a hypothetical approach; never claimed hands-on SAP experience. Empty/no-match context should produce a general hypothetical answer.
-7. Repeat a detected question: it should not generate again within the existing duplicate cache. Ask a different question while an answer is preparing: an old answer must not replace it.
+7. Repeat a detected question: it should not generate again within the existing duplicate cache. Ask distinct questions while an answer is preparing: all must queue and produce separate session-only cards in order.
 8. Temporarily disable Live Cue in backend configuration and restart the API. Transcription/question detection should continue while the cue shows a retryable error. Re-enable, restart and click Retry answer. Do not paste any key into the UI.
 9. Stop during preparation, restart, sign out and close/reopen the desktop app. Cues must clear and stale responses must not return. Restore `LIVE_CUE_ENABLED=false` when finished if you want generation disabled.
 
 Automated tests use fake providers and httpx MockTransport, never live Google/Gemini or real document contents. No live provider or acoustic answer-quality test was performed during implementation.
+
+
+## Gemini semantic intent
+
+`POST /api/intent/classify` uses the existing native opaque bearer-session authentication and rejects browser Origin requests. It is a separate replaceable `IntentProvider` boundary; the first adapter is `GeminiIntentProvider`. It classifies transcript intent only, never writes a Live Cue answer or retrieves documents.
+
+Optional `GEMINI_INTENT_ENABLED` defaults to `true`; the existing `LIVE_CUE_ENABLED`, `GEMINI_API_KEY` and `LIVE_CUE_MODEL` must also be configured. This reuses the current backend Gemini setup; no new credentials or provider installation is required. Real `.env` files are not modified by this milestone. Set the optional flag to false to test native deterministic fallback. Provider keys remain backend-only.
+
+Input: candidate text (1,600 characters), up to six transcript turns (4,000 total characters), an optional prior request (1,600 characters), and an explicit continuation-eligibility flag. No résumé/context-library excerpts, cue-answer history or entire session is sent. Output: `kind` (`ACTIONABLE_REQUEST`, `CONTINUATION`, `FOLLOW_UP`, `NOT_ACTIONABLE`), `normalized_request`, `confidence`. The prompt forbids answering, inventing facts or adding requirements. Continuations across an ineligible boundary are rejected.
+
+The classifier requests at most 384 output tokens, has an 8-second deadline, one in-flight call per account / four globally per process, a 32 KiB input cap and the existing bounded Gemini JSON transport. Error responses are sanitized and no-store; no transcript or key logging is added. Native routing deduplicates candidates and applies an additional session call budget. Unavailability, quota and malformed output cause deterministic fallback rather than stopping transcription. Existing answer retrieval/generation/grounding remain unchanged.
+
+For a safe manual test, use a fictional context document and synthetic audio in the development desktop app. Ask the split Salesforce integration request, then “How did you undo” / “the Salesforce migration?” without removing a card. Both cards should remain. Ask three distinct questions while an answer is preparing, remove the middle completed card, then ask Q4. Stop/restart and sign out to verify the feed clears. The installed beta is unchanged; no installer is rebuilt here.
