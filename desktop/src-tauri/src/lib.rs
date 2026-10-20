@@ -29,6 +29,7 @@ pub fn run() {
             audio::audio_stop,
             cue::cue_prepare,
             cue::cue_status,
+            cue::cue_clear,
             transcription::transcription_status
         ])
         .run(tauri::generate_context!())

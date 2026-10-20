@@ -209,15 +209,37 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
         {
             return false;
         }
-        let key = fingerprint(&candidate.text);
-        if key.is_empty()
-            || self.fingerprints.contains(&key)
-            || self
-                .last_event
-                .is_some_and(|last| now.saturating_sub(last) < COOLDOWN_MS)
-        {
+        let mut key = fingerprint(&candidate.text);
+        // A short follow-up can recur after a different answer, while repeated
+        // ASR/question events against the same answer still share one key.
+        if matches!(
+            key.as_str(),
+            "why"
+                | "what happened next"
+                | "request you explain that"
+                | "how did you solve that"
+                | "why is that"
+        ) {
+            if let Some(answer) = context
+                .iter()
+                .rev()
+                .find(|item| item.speaker == Speaker::You)
+            {
+                key = format!("{key}:answer:{}", answer.id);
+            }
+        }
+        if key.is_empty() || self.fingerprints.contains(&key) {
             return false;
         }
+        if self
+            .last_event
+            .is_some_and(|last| now.saturating_sub(last) < COOLDOWN_MS)
+        {
+            // Debounce distinct questions rather than silently losing a follow-up.
+            self.pending = Some(pending);
+            return false;
+        }
+        self.progress[Speaker::Them.index()].force_new = true;
         self.fingerprints.push_back(key);
         if self.fingerprints.len() > 128 {
             self.fingerprints.pop_front();

@@ -140,3 +140,37 @@ A sufficiently confident finalized Them question now prepares a ready-to-speak a
 Native session/event IDs prevent duplicate generation and mismatched results. A newer question supersedes the previous request; UI rendering also requires matching session/event IDs. Stop/restart/logout and window close invalidate pending native work and clear cues. No cue is stored on disk or in PostgreSQL. Cancellation is best effort after a provider has received a request.
 
 Generation is disabled until the backend is configured. See backend/README.md, Personalized Live Cue, for exact environment variables, free-tier privacy/cost implications and safe fictional-data test steps. Do not test free-tier Gemini with a real résumé or private meeting. No desktop key or new npm/Rust dependency is required. The existing transcription/understanding path remains independent of provider failures.
+
+
+## Windows beta distribution
+
+The NSIS installer bundles the native executable and web UI. End users do not need Node, Rust, Cargo or the source tree. Windows WebView2 is required; Tauri's default installer downloads its bootstrapper when needed (internet access required).
+
+Product: MeetGuide AI, version 0.1.0 (internal beta), stable identifier `com.meetguide.desktop`. Keep this identifier to preserve app/session identity. Existing navy/blue app icons are retained; final brand icon review remains separate.
+
+Release builds require an explicit **build-time**, non-secret API origin:
+
+```powershell
+cd desktop
+$env:MEETGUIDE_API_URL = "http://127.0.0.1:8000" # internal local-backend beta ONLY
+# Use the repository-local toolchain if Rust is not on PATH:
+$env:CARGO_HOME = (Resolve-Path ../work/tools/cargo).Path
+$env:RUSTUP_HOME = (Resolve-Path ../work/tools/rustup).Path
+$env:PATH = "$env:CARGO_HOME/bin;$env:PATH"
+npm run tauri build -- --bundles nsis
+```
+
+For a customer build, replace that value with the actual deployed HTTPS API origin and rebuild. No production URL exists yet. The internal local-backend installer requires the backend on the same computer; it is not a remotely connected customer release. Debug development continues to default to 127.0.0.1:8000. All auth, transcription and cue endpoints derive from this one native origin. Never package backend environment files or provider secrets.
+
+Before production: configure the backend Google redirect URI to its deployed HTTPS `/api/auth/google/callback` and register that exact URI with Google. Configure the deployed frontend origin and secure production cookie settings on the backend. Retain the existing ephemeral 127.0.0.1 desktop handoff; no desktop Google secret or custom redirect scheme is required. The API host must support HTTPS and transcription WebSockets (WSS).
+
+Installer output: `src-tauri/target/release/bundle/nsis/`. This beta is unsigned: Windows may show SmartScreen and Unknown Publisher warnings. No updater or signing configuration is included. No website download link is published until a public HTTPS installer URL is selected. Manually test installation, launch, Google login, audio, transcription and Live Cue before distributing.
+
+
+### Live Cue flow controls
+
+Ready answers remain readable until Clear or the next detected question; they do not block detection. Clear dismisses only the current cue and its question indicator, invalidates late results and retains the event ID to prevent replay. Audio, transcription, rolling context and uploaded documents are untouched.
+
+Native cue transport is serialized: one request is sent at a time. A newer question immediately replaces the visible question/preparing state; only the latest waiting question is retained. An already sent request drains to completion or its 35-second client timeout, with superseded results discarded. Queued requests are invalidated on Clear, Stop, restart or logout. An already sent request cannot be recalled from the provider. No additional backend/provider architecture is introduced.
+
+The 1.2-second quiet debounce and six-second detection cooldown remain. Valid distinct questions inside cooldown are deferred rather than discarded. Short complete follow-ups use recent conversation context; a bare unpunctuated “Why” remains a fragment. Repeated short follow-ups against the same answer are deduplicated, while a different finalized You turn can supply a new referent.

@@ -253,3 +253,98 @@ fn confidence_threshold_is_enforced() {
     e.finalized(Speaker::Them, 1, 1, "Tell me about yourself.", 0, 0);
     assert!(!e.tick(1200));
 }
+
+#[test]
+fn short_follow_ups_use_context_but_fragments_stay_quiet() {
+    for text in [
+        "Why?",
+        "How did you solve that?",
+        "What happened next?",
+        "What was the result?",
+        "Can you explain that?",
+    ] {
+        let mut e = engine();
+        say(
+            &mut e,
+            Speaker::You,
+            1,
+            "I worked on the Salesforce integration.",
+            0,
+        );
+        say(&mut e, Speaker::Them, 1, text, 100);
+        assert!(e.tick(1300), "{text}");
+        assert!(e.snapshot.events[0]
+            .context
+            .iter()
+            .any(|t| t.speaker == Speaker::You));
+    }
+    for text in [
+        "Why",
+        "Can you explain",
+        "How did you",
+        "What happened",
+        "that?",
+    ] {
+        let mut e = engine();
+        say(
+            &mut e,
+            Speaker::You,
+            1,
+            "I worked on the Salesforce integration.",
+            0,
+        );
+        say(&mut e, Speaker::Them, 1, text, 100);
+        assert!(!e.tick(1300), "{text}");
+    }
+    let mut e = engine();
+    say(&mut e, Speaker::Them, 1, "Why?", 0);
+    assert!(!e.tick(1200)); // No referent in an empty conversation.
+}
+
+#[test]
+fn cooldown_defers_a_distinct_follow_up_instead_of_losing_it() {
+    let mut e = engine();
+    say(&mut e, Speaker::Them, 1, "Tell me about the migration.", 0);
+    assert!(e.tick(1200));
+    say(
+        &mut e,
+        Speaker::You,
+        1,
+        "I mapped the records and tested the exchanges.",
+        1400,
+    );
+    say(&mut e, Speaker::Them, 2, "What was the result?", 2000);
+    assert!(!e.tick(3200));
+    assert!(!e.tick(7199));
+    assert!(e.tick(7200));
+    assert_eq!(
+        e.snapshot.events.back().unwrap().text,
+        "What was the result?"
+    );
+    assert!(!e.tick(9000));
+}
+
+#[test]
+fn repeated_why_is_suppressed_until_a_different_answer_supplies_context() {
+    let mut e = engine();
+    say(
+        &mut e,
+        Speaker::You,
+        1,
+        "I chose Salesforce for the integration.",
+        0,
+    );
+    say(&mut e, Speaker::Them, 1, "Why?", 100);
+    assert!(e.tick(1300));
+    say(&mut e, Speaker::Them, 2, "Why?", 11000);
+    assert!(!e.tick(12200));
+    say(
+        &mut e,
+        Speaker::You,
+        2,
+        "Its API supported the required data exchanges.",
+        13000,
+    );
+    say(&mut e, Speaker::Them, 3, "Why?", 14000);
+    assert!(e.tick(15200));
+}

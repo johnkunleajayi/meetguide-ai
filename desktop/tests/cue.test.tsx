@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LiveCue } from "../src/components/LiveCue";
-import { prepareCue, readCue, type CueSnapshot } from "../src/lib/cue";
+import { clearCue, prepareCue, readCue, type CueSnapshot } from "../src/lib/cue";
 import type { MeaningfulEvent } from "../src/lib/understanding";
-vi.mock("../src/lib/cue", () => ({ prepareCue: vi.fn(), readCue: vi.fn() }));
+vi.mock("../src/lib/cue", () => ({ clearCue: vi.fn(), prepareCue: vi.fn(), readCue: vi.fn() }));
 const question: MeaningfulEvent = { id: 1, type: "question", speaker: "them", text: "How did you handle the integration?", confidence: 0.94, turnId: 1, detectedAtMs: 1200, context: [] };
 const answer = "I developed Salesforce integrations with external APIs.\n\nI would build on that approach by checking the requirements carefully.";
 const ready: CueSnapshot = { sessionId: 1, eventId: 1, status: "ready", answer, grounding: "document_supported", sourceCount: 1, error: null };
-beforeEach(() => { vi.resetAllMocks(); vi.mocked(prepareCue).mockResolvedValue(); vi.mocked(readCue).mockResolvedValue(ready); });
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(prepareCue).mockResolvedValue(); vi.mocked(clearCue).mockResolvedValue(); vi.mocked(readCue).mockResolvedValue(ready); });
 afterEach(cleanup);
 
 it("triggers from a confident question and renders ready-to-speak paragraphs", async () => {
@@ -78,4 +78,35 @@ it("labels the no-context answer as a general approach", async () => {
   vi.mocked(readCue).mockResolvedValue({ ...ready, grounding: "general_approach", sourceCount: 0 });
   render(<LiveCue sessionId={1} event={question} active />);
   expect(await screen.findByText("General approach · No personal experience claimed")).toBeTruthy();
+});
+
+it("Clear dismisses the answer and question without replaying it; the next question still runs", async () => {
+  const onClear = vi.fn();
+  const { rerender } = render(<LiveCue sessionId={1} event={question} active onClear={onClear} />);
+  await screen.findByText("Ready to speak");
+  fireEvent.click(screen.getByRole("button", { name: "Clear Live Cue" }));
+  await screen.findByText("Listening for the next question.");
+  expect(screen.queryByText(question.text)).toBeNull();
+  expect(screen.queryByText("I developed Salesforce integrations with external APIs.")).toBeNull();
+  expect(clearCue).toHaveBeenCalledWith(1, 1);
+  expect(onClear).toHaveBeenCalledWith(1, 1);
+  rerender(<LiveCue sessionId={1} event={{ ...question }} active onClear={onClear} />);
+  expect(prepareCue).toHaveBeenCalledTimes(1);
+  vi.mocked(readCue).mockResolvedValue({ ...ready, eventId: 2 });
+  rerender(<LiveCue sessionId={1} event={{ ...question, id: 2 }} active onClear={onClear} />);
+  await screen.findByText("Ready to speak");
+  expect(prepareCue).toHaveBeenLastCalledWith(1, 2, false);
+});
+it("Clear during preparation ignores a late poll and reports clear failure safely", async () => {
+  let resolve!: (value: CueSnapshot) => void;
+  vi.mocked(readCue).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  render(<LiveCue sessionId={1} event={question} active />);
+  await waitFor(() => expect(readCue).toHaveBeenCalled());
+  vi.mocked(clearCue).mockRejectedValueOnce(new Error("native failure"));
+  fireEvent.click(screen.getByRole("button", { name: "Clear Live Cue" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Please retry Clear");
+  fireEvent.click(screen.getByRole("button", { name: "Clear Live Cue" }));
+  await screen.findByText("Listening for the next question.");
+  resolve(ready);
+  await waitFor(() => expect(screen.queryByText("Ready to speak")).toBeNull());
 });

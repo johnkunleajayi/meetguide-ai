@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { GOOGLE_LOGIN_URL, type AuthUser } from "../lib/auth";
+import { GOOGLE_LOGIN_URL, rememberWorkspace, type AuthUser } from "../lib/auth";
 
 function UserAvatar({ user }: { user: AuthUser }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -16,7 +17,7 @@ export function AuthControls() {
   return <AuthControlsWithState auth={useAuth()} />;
 }
 
-export function AuthControlsWithState({ auth }: { auth: ReturnType<typeof useAuth> }) {
+export function AuthControlsWithState({ auth, publicSite = false }: { auth: ReturnType<typeof useAuth>; publicSite?: boolean }) {
   const { state, retry, logout, isSigningOut, logoutError } = auth;
   if (state.status === "loading") {
     return <span className="auth-status" role="status">Checking sign-in…</span>;
@@ -28,6 +29,7 @@ export function AuthControlsWithState({ auth }: { auth: ReturnType<typeof useAut
     </div>;
   }
   if (state.status === "authenticated") {
+    if (publicSite) return <Link className="button button-primary nav-cta" to="/app">Open Workspace</Link>;
     const label = state.user.name?.trim() || state.user.email;
     return <div className="auth-account">
       <div className="auth-controls">
@@ -41,7 +43,7 @@ export function AuthControlsWithState({ auth }: { auth: ReturnType<typeof useAut
     </div>;
   }
   return <div className="auth-controls">
-    <a className="sign-in auth-action" href={GOOGLE_LOGIN_URL}>Sign in</a>
-    <a className="button button-primary nav-cta" href={GOOGLE_LOGIN_URL}>Get started</a>
+    <a className="sign-in auth-action" href={GOOGLE_LOGIN_URL} onClick={rememberWorkspace}>Sign in</a>
+    <a className="button button-primary nav-cta" href={GOOGLE_LOGIN_URL} onClick={rememberWorkspace}>Get started</a>
   </div>;
 }

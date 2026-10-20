@@ -30,15 +30,17 @@ export function useAuth() {
   }
 
   async function logout() {
-    if (logoutPending.current) return;
+    if (logoutPending.current) return false;
     logoutPending.current = true;
     setIsSigningOut(true);
     setLogoutError(false);
     try {
       await signOut();
       setState({ status: "unauthenticated" });
+      return true;
     } catch {
       setLogoutError(true);
+      return false;
     } finally {
       logoutPending.current = false;
       setIsSigningOut(false);

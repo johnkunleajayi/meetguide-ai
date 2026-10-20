@@ -1,9 +1,10 @@
 import { AudioLines, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 export function Brand() {
   return (
-    <a className="brand" href="#" aria-label="MeetGuide AI home">
+    <Link className="brand" to="/" aria-label="MeetGuide AI home">
       <AudioLines
         className="brand-mark"
         size={25}
@@ -13,7 +14,7 @@ export function Brand() {
       <span>
         MeetGuide <span className="brand-ai">AI</span>
       </span>
-    </a>
+    </Link>
   );
 }
 

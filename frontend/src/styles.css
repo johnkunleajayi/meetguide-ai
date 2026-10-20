@@ -1263,3 +1263,27 @@ footer {
 .library-documents p { margin: 6px 0 0; }
 .library-privacy { border-top: 1px solid var(--line); padding-top: 16px; margin-bottom: 0; }
 @media (max-width: 600px) { .library-panel { padding: 18px; } .library-upload-actions { align-items: stretch; flex-direction: column; } }
+
+/* Workspace layout reuses the existing visual tokens and document components. */
+.workspace-shell { min-height: 100dvh; }
+.workspace-header { display: flex; align-items: center; gap: 28px; padding-block: 22px; flex-wrap: wrap; }
+.workspace-nav { display: flex; align-items: center; gap: 24px; font-size: 12px; color: var(--muted); }
+.workspace-nav [aria-current="page"] { color: var(--blue); font-weight: 600; }
+.workspace-header .header-actions { margin-left: auto; }
+.workspace-main { padding-bottom: 56px; }
+.workspace-intro { padding-top: 56px; }
+.workspace-intro h1, .route-message h1 { font-size: clamp(26px, 3vw, 38px); letter-spacing: -1px; line-height: 1.2; }
+.workspace-intro > p:last-child, .route-message p { color: var(--muted); line-height: 1.7; max-width: 650px; }
+.workspace-main .context-library { padding-top: 32px; }
+.route-message { padding-block: 64px; }
+.route-back { display: block; margin-top: 24px; color: var(--blue); font-size: 14px; }
+@media (max-width: 600px) {
+  .workspace-header { gap: 18px; }
+  .workspace-header .header-actions { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  .workspace-nav { margin-left: auto; gap: 14px; }
+  .workspace-intro { padding-top: 32px; }
+  .workspace-main .section-heading { align-items: stretch; }
+}
+@media (max-width: 380px) {
+  .workspace-nav { width: 100%; margin-left: 0; }
+}

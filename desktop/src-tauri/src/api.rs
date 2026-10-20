@@ -25,8 +25,14 @@ pub struct Api {
 
 impl Api {
     pub fn new() -> Result<Self, &'static str> {
-        let base = Url::parse(option_env!("MEETGUIDE_API_URL").unwrap_or("http://127.0.0.1:8000"))
-            .map_err(|_| "Invalid backend URL configuration.")?;
+        let configured = option_env!("MEETGUIDE_API_URL")
+            .or(if cfg!(debug_assertions) {
+                Some("http://127.0.0.1:8000")
+            } else {
+                None
+            })
+            .ok_or("This build has no backend URL configured.")?;
+        let base = Url::parse(configured).map_err(|_| "Invalid backend URL configuration.")?;
         if !valid_backend(&base) {
             return Err("Backend must use HTTPS, or HTTP on 127.0.0.1 for local development.");
         }

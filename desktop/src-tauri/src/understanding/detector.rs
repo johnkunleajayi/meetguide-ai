@@ -38,7 +38,7 @@ pub(crate) fn fingerprint(text: &str) -> String {
         .join(" ")
 }
 
-fn candidate(text: &str) -> Option<Detection> {
+fn candidate(text: &str, has_context: bool) -> Option<Detection> {
     let text = text.trim();
     if text.ends_with("...") || text.ends_with('…') || text.ends_with([',', ':', ';', '-', '—'])
     {
@@ -54,6 +54,21 @@ fn candidate(text: &str) -> Option<Detection> {
         tokens.remove(0);
     }
     let tokens: Vec<&str> = tokens.iter().map(String::as_str).collect();
+    let follow_up = has_context
+        && (matches!(
+            tokens.as_slice(),
+            ["what", "happened", "next"]
+                | ["can" | "could", "you", "explain", "that"]
+                | ["how", "did", "you", "solve", "that"]
+                | ["why", "is", "that"]
+        ) || tokens.as_slice() == ["why"] && text.ends_with('?'));
+    if follow_up {
+        return Some(Detection {
+            event_type: EventType::Question,
+            text: text.to_owned(),
+            confidence: 0.88,
+        });
+    }
     if tokens.len() < 3 {
         return None;
     }
@@ -179,7 +194,7 @@ fn candidate(text: &str) -> Option<Detection> {
 }
 
 impl UnderstandingProvider for LocalQuestionDetector {
-    fn analyze(&self, turn: &ConversationTurn, _context: &[ConversationTurn]) -> Option<Detection> {
+    fn analyze(&self, turn: &ConversationTurn, context: &[ConversationTurn]) -> Option<Detection> {
         if turn.speaker != Speaker::Them
             || turn.text.trim_end().ends_with([',', ':', '-', '—'])
             || turn.text.trim_end().ends_with("...")
@@ -189,9 +204,12 @@ impl UnderstandingProvider for LocalQuestionDetector {
         }
         // A turn may include setup, a question, and several final ASR segments.
         // Evaluate sentences, not the provider's fragment boundaries.
+        let has_context = context
+            .iter()
+            .any(|item| item.id != turn.id && words(&item.text).len() >= 4);
         turn.text
             .split_inclusive(['.', '?', '!', '\n'])
-            .filter_map(candidate)
+            .filter_map(|text| candidate(text, has_context))
             .last()
     }
 }

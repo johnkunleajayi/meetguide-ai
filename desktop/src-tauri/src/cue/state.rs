@@ -21,6 +21,7 @@ struct State {
 pub struct CueService {
     state: Mutex<State>,
     changed: watch::Sender<u64>,
+    request: tokio::sync::Mutex<()>,
 }
 impl Default for CueService {
     fn default() -> Self {
@@ -34,6 +35,7 @@ impl Default for CueService {
                 },
             }),
             changed: watch::channel(0).0,
+            request: tokio::sync::Mutex::new(()),
         }
     }
 }
@@ -49,6 +51,43 @@ impl CueService {
             };
             self.changed.send_replace(state.sequence);
         }
+    }
+    // Dismiss only this cue. Keep the event identity to prevent a poll/remount replay.
+    pub fn clear(&self, session: u64, event: u64) -> Result<(), &'static str> {
+        let mut state = self.state.lock().map_err(|_| "Live Cue is unavailable.")?;
+        if state.active == Some(session) && state.snapshot.event_id == event {
+            state.sequence += 1;
+            state.snapshot = CueSnapshot {
+                session_id: session,
+                event_id: event,
+                status: "idle",
+                ..Default::default()
+            };
+            self.changed.send_replace(state.sequence);
+        }
+        Ok(())
+    }
+    // One outbound request at a time. Superseded waiters disappear; an already
+    // sent request drains to its bounded timeout, but can never publish stale text.
+    pub async fn run<F, Fut>(
+        &self,
+        sequence: u64,
+        mut cancelled: watch::Receiver<u64>,
+        generate: F,
+    ) -> Option<Result<super::transport::CueReply, &'static str>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<super::transport::CueReply, &'static str>>,
+    {
+        let _request = tokio::select! {
+            biased;
+            _ = cancelled.changed() => return None,
+            guard = self.request.lock() => guard,
+        };
+        if *cancelled.borrow() != sequence {
+            return None;
+        }
+        Some(generate().await)
     }
     pub fn snapshot(&self) -> Result<CueSnapshot, &'static str> {
         self.state

@@ -1,0 +1,11 @@
+.hero-conversation { margin: 0; min-width: 0; position: relative; }
+.hero-owned-scene { aspect-ratio: 1672 / 941; overflow: hidden; border-radius: 14px 14px 34px 14px; border: 1px solid var(--line); background: #0b1220; box-shadow: 0 24px 64px rgb(6 11 20 / 18%); }
+.hero-owned-scene img { display: block; width: 100%; height: auto; }
+.hero-conversation figcaption { padding-top: 12px; color: var(--marketing-muted); font-size: 10px; line-height: 1.6; }
+.hero-asset-fallback { min-height: 100%; padding: clamp(20px, 4vw, 48px); color: #f8fafc; }
+.hero-asset-fallback strong { font-size: clamp(18px, 2vw, 28px); }
+.public-site .hero-asset-fallback p { color: #cbd5e1; font-size: 14px; line-height: 1.7; }
+.hero-asset-fallback a { color: #93c5fd; font-size: 13px; text-underline-offset: 4px; }
+@media (prefers-reduced-motion: no-preference) { .hero-conversation { animation: cue-enter .65s ease-out both; } }
+@media (max-width: 900px) { .hero-conversation { width: 100%; max-width: 760px; justify-self: center; } }
+@media (max-width: 480px) { .hero-owned-scene { border-radius: 10px 10px 22px 10px; } .hero-conversation figcaption { font-size: 9px; } }

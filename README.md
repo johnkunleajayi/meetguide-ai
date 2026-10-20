@@ -15,7 +15,7 @@ meetguide-ai/
 
 A single Git repository at the project root contains three independent applications:
 
-- `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. The marketing frontend and cookie-based Google authentication are implemented; the remaining web roadmap is deferred.
+- `frontend/`: the existing React + TypeScript + Vite + Tailwind web application. The roadmap includes the marketing website, signup/login, dashboard, AI provider connections, documents/context, session preparation, account/settings, and desktop downloads. Public marketing (`/`), an authenticated preparation workspace (`/app`), cookie-based Google authentication, and Context Library document management are implemented. The remaining web roadmap is deferred.
 - `desktop/`: a separate Windows-first Tauri 2 + React + TypeScript + Vite + Tailwind companion for use during meetings. The shell includes brand, tagline, Ready status, theme toggle, a disabled Start Session button, and native Google sign-in using the shared backend. See `desktop/README.md` for secure persistence and manual verification.
 - `backend/`: MeetGuide FastAPI API, a modular monolith with PostgreSQL, SQLAlchemy 2.x, psycopg, Alembic, and environment-based settings. Health/configuration/database infrastructure, User/Session models, and Google authentication are implemented. Web and desktop share accounts and database-backed opaque sessions.
 
@@ -38,7 +38,19 @@ npm run build
 npm run preview
 ```
 
-The web source and existing visual design are preserved. Web preview conversations and cues are static examples.
+The web source and existing visual design are preserved. The public product demonstration uses fictional content and frontend-only state transitions; it captures no audio and calls no transcription or AI services.
+
+### Web routes and responsibilities
+
+- `/`: public marketing website, accessible signed in or signed out; no private Context Library is mounted or fetched here.
+- `/app`: authenticated preparation workspace with account controls and the existing Context Library upload/list/delete workflow. Signed-out visitors see a sign-in gate using the existing backend Google flow.
+- Live transcription and Personalized Live Cue run in MeetGuide Desktop, not in the web workspace.
+
+Public Sign in/Get started and the workspace sign-in gate record only a fixed `/app` navigation intent in session storage. After the existing Google callback returns to `/`, the successful session check opens `/app`. No credentials or tokens are stored in browser storage. If session storage is unavailable, use Open Workspace after sign-in. Signed-in users can still browse `/`; signing out from the workspace returns there only after backend logout succeeds.
+
+React Router keeps pages, layouts and the authentication gate separate. Auth and document API calls retain session cookies and existing Origin protections. For production hosting, configure an SPA fallback to `index.html` for frontend routes such as `/app` (not backend `/api` routes); Vite dev/preview already handle this. Refreshing `/app` must serve the frontend entry point.
+
+Run frontend regression tests with `npm test` from `frontend/`.
 
 ## Desktop development
 

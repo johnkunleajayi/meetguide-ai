@@ -256,3 +256,6 @@ footer {
 .live-cue-question { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0; overflow-wrap: anywhere; }
 .live-cue-answer p { font-size: 15px; line-height: 1.85; margin: 16px 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .live-cue { padding: 15px; } }
+
+.live-cue-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.live-cue-actions .audio-refresh { margin: 0; padding: 5px 9px; font-size: 11px; }

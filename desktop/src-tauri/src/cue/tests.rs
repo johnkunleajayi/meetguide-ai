@@ -124,3 +124,122 @@ fn transcript_reset_or_new_question_invalidates_completion() {
     store.reset(&[]);
     assert!(!current(&store, session, 2));
 }
+
+#[test]
+fn clear_only_dismisses_the_matching_cue_and_keeps_session_eligible() {
+    let service = CueService::default();
+    service.reset(Some(1));
+    let (old, cancelled) = service.begin(1, 1, false).unwrap();
+    service.finish(old, Ok(reply()));
+    service.clear(2, 1).unwrap();
+    assert_eq!(service.snapshot().unwrap().status, "ready");
+    service.clear(1, 1).unwrap();
+    assert!(cancelled.has_changed().unwrap());
+    assert_eq!(service.snapshot().unwrap().status, "idle");
+    assert!(service.snapshot().unwrap().answer.is_none());
+    service.finish(old, Ok(reply()));
+    assert!(service.snapshot().unwrap().answer.is_none());
+    assert!(service.begin(1, 1, false).is_none());
+    let (new, _) = service.begin(1, 2, false).unwrap();
+    service.clear(1, 1).unwrap(); // Late Clear cannot dismiss a newer question.
+    service.finish(new, Ok(reply()));
+    assert_eq!(service.snapshot().unwrap().event_id, 2);
+    assert_eq!(service.snapshot().unwrap().status, "ready");
+}
+
+#[test]
+fn completed_answer_never_blocks_a_later_question() {
+    let service = CueService::default();
+    service.reset(Some(1));
+    let (first, _) = service.begin(1, 1, false).unwrap();
+    service.finish(first, Ok(reply()));
+    let (next, _) = service.begin(1, 2, false).unwrap();
+    assert!(service.snapshot().unwrap().answer.is_none());
+    service.finish(next, Ok(reply()));
+    assert_eq!(service.snapshot().unwrap().event_id, 2);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn only_latest_waiting_question_runs_after_active_request_drains() {
+    let service = Arc::new(CueService::default());
+    service.reset(Some(1));
+    let (first, cancelled) = service.begin(1, 1, false).unwrap();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+    let worker = service.clone();
+    let active = tokio::spawn(async move {
+        worker
+            .run(first, cancelled, || async {
+                started_tx.send(()).unwrap();
+                finish_rx.await.unwrap();
+                Ok(reply())
+            })
+            .await
+    });
+    started_rx.await.unwrap();
+    let (second, cancelled) = service.begin(1, 2, false).unwrap();
+    let worker = service.clone();
+    let obsolete = tokio::spawn(async move {
+        worker
+            .run(second, cancelled, || async {
+                panic!("superseded waiter must not send")
+            })
+            .await
+    });
+    let (latest, cancelled) = service.begin(1, 3, false).unwrap();
+    let (sent_tx, mut sent_rx) = tokio::sync::oneshot::channel();
+    let worker = service.clone();
+    let waiting = tokio::spawn(async move {
+        let result = worker
+            .run(latest, cancelled, || async {
+                sent_tx.send(()).unwrap();
+                Ok(reply())
+            })
+            .await;
+        worker.finish(latest, result.unwrap());
+    });
+    tokio::task::yield_now().await;
+    assert!(matches!(
+        sent_rx.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    assert!(obsolete.await.unwrap().is_none());
+    finish_tx.send(()).unwrap();
+    service.finish(first, active.await.unwrap().unwrap());
+    waiting.await.unwrap();
+    assert_eq!(service.snapshot().unwrap().event_id, 3);
+    assert_eq!(service.snapshot().unwrap().status, "ready");
+}
+
+#[test]
+fn clearing_does_not_stop_audio_transcription_or_understanding() {
+    let audio = crate::audio::AudioService::default();
+    let mut store = audio.transcript.lock().unwrap();
+    store.reset(&[crate::transcription::Source::System]);
+    store.snapshot.understanding.events.push_back(event());
+    let session = store.snapshot.session_id;
+    let before = serde_json::to_value(&store.snapshot).unwrap();
+    drop(store);
+    let audio_before = serde_json::to_value(audio.status().unwrap()).unwrap();
+    audio.cues.reset(Some(session));
+    let (seq, _) = audio.cues.begin(session, 1, false).unwrap();
+    audio.cues.finish(seq, Ok(reply()));
+    audio.cues.clear(session, 1).unwrap();
+    assert_eq!(
+        before,
+        serde_json::to_value(&audio.transcript.lock().unwrap().snapshot).unwrap()
+    );
+    assert_eq!(
+        audio_before,
+        serde_json::to_value(audio.status().unwrap()).unwrap()
+    );
+    assert!(
+        audio
+            .transcript
+            .lock()
+            .unwrap()
+            .snapshot
+            .understanding
+            .active
+    );
+}

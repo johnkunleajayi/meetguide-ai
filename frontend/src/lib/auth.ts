@@ -33,3 +33,16 @@ export async function signOut(): Promise<void> {
   });
   if (!response.ok) throw new Error("Unable to sign out. Please try again.");
 }
+
+// A fixed route intent only, never a token or arbitrary redirect URL.
+const WORKSPACE_INTENT = "meetguide-open-workspace";
+export function rememberWorkspace() {
+  try { sessionStorage.setItem(WORKSPACE_INTENT, "true"); } catch { /* Workspace stays accessible via navigation. */ }
+}
+export function consumeWorkspaceIntent(): boolean {
+  try {
+    const pending = sessionStorage.getItem(WORKSPACE_INTENT) === "true";
+    sessionStorage.removeItem(WORKSPACE_INTENT);
+    return pending;
+  } catch { return false; }
+}

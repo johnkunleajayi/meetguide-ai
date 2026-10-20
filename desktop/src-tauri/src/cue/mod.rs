@@ -64,6 +64,18 @@ pub fn cue_prepare(
     prepare(audio.inner().clone(), session_id, event_id, retry)
 }
 
+#[tauri::command]
+pub fn cue_clear(
+    session_id: u64,
+    event_id: u64,
+    audio: tauri::State<'_, Arc<crate::audio::AudioService>>,
+) -> Result<(), String> {
+    audio
+        .cues
+        .clear(session_id, event_id)
+        .map_err(str::to_owned)
+}
+
 fn current(store: &crate::transcription::TranscriptStore, session: u64, event: u64) -> bool {
     store.snapshot.session_id == session
         && store.snapshot.understanding.active
@@ -98,14 +110,16 @@ fn prepare(
         )
         .ok_or("This question cannot be prepared. Wait for the next complete question.")?
     };
-    let Some((sequence, mut cancelled)) = audio.cues.begin(session, event, retry) else {
+    let Some((sequence, cancelled)) = audio.cues.begin(session, event, retry) else {
         return Ok(());
     };
     tauri::async_runtime::spawn(async move {
-        let result = tokio::select! {
-            biased;
-            _ = cancelled.changed() => return,
-            result = transport::generate(payload) => result,
+        let Some(result) = audio
+            .cues
+            .run(sequence, cancelled, || transport::generate(payload))
+            .await
+        else {
+            return;
         };
         if audio
             .transcript

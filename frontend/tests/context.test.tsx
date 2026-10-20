@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ContextLibrary } from "../src/components/ContextLibrary";
 import App from "../src/App";
 import { deleteDocument, listDocuments, MAX_DOCUMENT_BYTES, uploadDocument } from "../src/lib/context";
@@ -7,7 +7,7 @@ import { deleteDocument, listDocuments, MAX_DOCUMENT_BYTES, uploadDocument } fro
 const document = { id: "doc-1", name: "resume.txt", context_type: "resume", media_type: "text/plain", size_bytes: 20, status: "ready", created_at: "2026-10-19T00:00:00Z" };
 const reply = (status: number, body: unknown = null) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 function fetchMock() { const mock = vi.fn(); vi.stubGlobal("fetch", mock); return mock; }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); sessionStorage.clear(); });
 
 it("lists private documents and uploads a résumé with credentials", async () => {
   const fetch = fetchMock().mockResolvedValueOnce(reply(200, [])).mockResolvedValueOnce(reply(201, document));
@@ -34,7 +34,7 @@ it("shows upload errors without inventing a ready document", async () => {
   fireEvent.change(screen.getByLabelText("Upload résumé / CV"), { target: { files: [new File(["bad pdf"], "cv.pdf")] } });
   fireEvent.click(screen.getByRole("button", { name: "Upload résumé" }));
   expect((await screen.findByRole("alert")).textContent).toContain("No readable text");
-  expect(screen.queryByText("cv.pdf")).toBeNull();
+  expect(within(screen.getByRole("list", { name: "Your context documents" })).queryByText("cv.pdf")).toBeNull();
 });
 it("validates size, empty and unsupported files before sending", async () => {
   const fetch = fetchMock();
@@ -54,7 +54,8 @@ it("aborts in-flight document requests when unmounted", () => {
   const { unmount } = render(<ContextLibrary />); unmount();
   expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
 });
-it("only mounts the library for the authenticated account and clears it on logout", async () => {
+it("only mounts the library in the authenticated workspace and clears it on logout", async () => {
+  window.history.replaceState({}, "", "/app");
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   const fetch = fetchMock().mockResolvedValueOnce(reply(200, { id: "user-1", email: "jane@example.test", name: "Jane", avatar_url: null }))
     .mockResolvedValueOnce(reply(200, [document])).mockResolvedValueOnce(reply(204));
