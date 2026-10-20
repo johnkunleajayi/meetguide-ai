@@ -34,7 +34,7 @@ FINISH_CODES = {
 def unavailable(reason: str, status: int | None = None) -> ProviderUnavailable:
     # Only application-controlled reasons/statuses; never exception text, headers or bodies.
     logger.warning("Live Cue Gemini failure: http_status=%s reason=%s", status, reason)
-    return ProviderUnavailable()
+    return ProviderUnavailable(reason, status)
 
 
 def http_reason(data: bytes) -> str:
@@ -49,6 +49,12 @@ def http_reason(data: bytes) -> str:
 class GeminiProvider:
     def __init__(self, settings: Settings, transport=None):
         self.settings, self.transport = settings, transport
+
+    async def stream(self, system: str, user: str):
+        from app.cues.gemini_stream import stream
+
+        async for fragment in stream(self, system, user):
+            yield fragment
 
     async def generate(self, system: str, user: str) -> Draft:
         return await self.request_json(system, user, Draft, 2200)

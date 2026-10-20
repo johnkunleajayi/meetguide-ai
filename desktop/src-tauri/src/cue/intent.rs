@@ -4,6 +4,8 @@ use std::time::Duration;
 
 #[derive(Serialize)]
 pub struct IntentInput {
+    #[serde(skip)]
+    pub question_id: String,
     pub text: String,
     pub context: Vec<CueTurn>,
     pub previous_request: Option<String>,
@@ -34,6 +36,7 @@ pub async fn classify(input: IntentInput) -> Result<IntentResult, &'static str> 
     let mut response = client
         .post(url)
         .bearer_auth(token.as_str())
+        .header("X-MeetGuide-Question-Id", &input.question_id)
         .json(&input)
         .send()
         .await

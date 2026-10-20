@@ -1,5 +1,6 @@
 mod intent;
 mod state;
+mod stream;
 #[cfg(test)]
 mod tests;
 mod transport;

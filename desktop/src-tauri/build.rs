@@ -12,6 +12,8 @@ fn main() {
             "auth_login",
             "auth_logout",
             "auth_cancel",
+            "preparation_list",
+            "preparation_activate",
             "audio_devices",
             "audio_start",
             "audio_status",

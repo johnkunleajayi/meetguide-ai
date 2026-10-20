@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-session-preparation"
+description = "Allow the local main window to list and activate the signed-in user's preparations through the native authenticated client."
+commands.allow = ["preparation_list", "preparation_activate"]

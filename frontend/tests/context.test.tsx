@@ -13,12 +13,12 @@ it("lists private documents and uploads a résumé with credentials", async () =
   const fetch = fetchMock().mockResolvedValueOnce(reply(200, [])).mockResolvedValueOnce(reply(201, document));
   render(<ContextLibrary />);
   expect(screen.getByRole("status").textContent).toContain("Loading");
-  await screen.findByText("No documents yet. Add your résumé to get started.");
+  await screen.findByText("No documents yet. You can prepare a session without one.");
   const file = new File(["Leadership experience"], "resume.txt", { type: "text/plain" });
-  fireEvent.change(screen.getByLabelText("Upload résumé / CV"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "Upload résumé" }));
+  fireEvent.change(screen.getByLabelText("Upload context document"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
   expect(await screen.findByText("resume.txt")).toBeTruthy();
-  expect(fetch).toHaveBeenLastCalledWith("http://127.0.0.1:8000/api/context/documents", expect.objectContaining({ method: "POST", credentials: "include", body: file, headers: { "Content-Type": "application/octet-stream", "X-Document-Name": "resume.txt" } }));
+  expect(fetch).toHaveBeenLastCalledWith("http://127.0.0.1:8000/api/context/documents", expect.objectContaining({ method: "POST", credentials: "include", body: file, headers: { "Content-Type": "application/octet-stream", "X-Document-Name": "resume.txt", "X-Context-Type": "other" } }));
 });
 it("deletes a document after confirmation and removes it from the list", async () => {
   const fetch = fetchMock().mockResolvedValueOnce(reply(200, [document])).mockResolvedValueOnce(reply(204));
@@ -30,9 +30,9 @@ it("deletes a document after confirmation and removes it from the list", async (
 });
 it("shows upload errors without inventing a ready document", async () => {
   fetchMock().mockResolvedValueOnce(reply(200, [])).mockResolvedValueOnce(reply(422, { detail: "No readable text found." }));
-  render(<ContextLibrary />); await screen.findByText("No documents yet. Add your résumé to get started.");
-  fireEvent.change(screen.getByLabelText("Upload résumé / CV"), { target: { files: [new File(["bad pdf"], "cv.pdf")] } });
-  fireEvent.click(screen.getByRole("button", { name: "Upload résumé" }));
+  render(<ContextLibrary />); await screen.findByText("No documents yet. You can prepare a session without one.");
+  fireEvent.change(screen.getByLabelText("Upload context document"), { target: { files: [new File(["bad pdf"], "cv.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Upload document" }));
   expect((await screen.findByRole("alert")).textContent).toContain("No readable text");
   expect(within(screen.getByRole("list", { name: "Your context documents" })).queryByText("cv.pdf")).toBeNull();
 });
@@ -57,15 +57,16 @@ it("aborts in-flight document requests when unmounted", () => {
 it("only mounts the library in the authenticated workspace and clears it on logout", async () => {
   window.history.replaceState({}, "", "/app");
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
-  const fetch = fetchMock().mockResolvedValueOnce(reply(200, { id: "user-1", email: "jane@example.test", name: "Jane", avatar_url: null }))
-    .mockResolvedValueOnce(reply(200, [document])).mockResolvedValueOnce(reply(204));
+  const fetch = fetchMock().mockImplementation((url: string) => Promise.resolve(
+    url.endsWith("/me") ? reply(200, { id: "user-1", email: "jane@example.test", name: "Jane", avatar_url: null }) :
+    url.endsWith("/logout") ? reply(204) : url.endsWith("/preparations") ? reply(200, []) : reply(200, [document])));
   render(<App />);
   expect(await screen.findByText("resume.txt")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
   await screen.findByText("Sign in");
   expect(screen.queryByText("resume.txt")).toBeNull();
   expect(screen.queryByRole("heading", { name: "Context Library" })).toBeNull();
-  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(fetch).toHaveBeenCalledTimes(4);
 });
 it("keeps the library hidden while signed out", async () => {
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));

@@ -16,6 +16,7 @@ from app.context.storage import LocalDocumentStorage
 from app.core import auth
 from app.db.auth_repository import AuthRepository, get_auth_repository
 from app.models import User
+from app.preparations.repository import get_preparations
 
 router = APIRouter(prefix="/context", tags=["context library"])
 
@@ -33,6 +34,7 @@ class DocumentSummary(BaseModel):
 
 class RetrievalQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
+    preparation_id: UUID
     query: str = Field(min_length=2, max_length=500)
     document_id: UUID | None = None
     limit: int = Field(default=5, ge=1, le=10)
@@ -117,7 +119,11 @@ async def upload_document(
         content.extend(part)
     try:
         document = await run_in_threadpool(
-            library.upload, user.id, unquote(name, errors="strict"), bytes(content), "resume"
+            library.upload,
+            user.id,
+            unquote(name, errors="strict"),
+            bytes(content),
+            request.headers.get("x-context-type", "other"),
         )
     except (InvalidDocument, UnicodeError) as error:
         detail = str(error) if isinstance(error, InvalidDocument) else "Invalid document filename"
@@ -152,10 +158,19 @@ def retrieve(
     response: Response,
     user: User = Depends(current_user),
     library: ContextLibrary = Depends(get_library),
+    preparations=Depends(get_preparations),
 ):
     try:
-        rows = library.repository.rows(user.id, payload.document_id)
+        view = preparations.view(user.id, payload.preparation_id)
+        ids = [
+            entry.document_id
+            for entry in view.documents
+            if payload.document_id is None or entry.document_id == payload.document_id
+        ]
+        rows = library.repository.scoped_rows(user.id, ids)
         ranked = library.index.rank(payload.query, rows, payload.limit)
+    except LookupError:
+        raise HTTPException(404, "Preparation not found", headers=NO_STORE) from None
     except SQLAlchemyError:
         raise HTTPException(
             503, "Context Library is temporarily unavailable", headers=NO_STORE

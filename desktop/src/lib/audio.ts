@@ -7,7 +7,7 @@ export interface CaptureStatus { state: "idle" | "starting" | "listening" | "err
 export interface CaptureOptions { mode: AudioMode; systemDeviceId: string | null; microphoneDeviceId: string | null }
 export const idleStatus = (): CaptureStatus => ({ state: "idle", system: null, microphone: null, error: null });
 export const listAudioDevices = () => invoke<AudioDevices>("audio_devices");
-export const startAudio = (options: CaptureOptions) => invoke<CaptureStatus>("audio_start", { options });
+export const startAudio = (options: CaptureOptions, preparationId: string, preparationRevision: string) => invoke<CaptureStatus>("audio_start", { options, preparationId, preparationRevision });
 export const stopAudio = () => invoke<void>("audio_stop");
 export const readAudioStatus = () => invoke<CaptureStatus>("audio_status");
 export function meterPercent(rms: number) {

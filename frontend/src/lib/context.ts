@@ -21,11 +21,11 @@ async function request(path: string, options: RequestInit = {}) {
 export async function listDocuments(signal: AbortSignal): Promise<ContextDocument[]> {
   return (await request("/documents", { signal })).json();
 }
-export async function uploadDocument(file: File, signal: AbortSignal): Promise<ContextDocument> {
+export async function uploadDocument(file: File, signal: AbortSignal, contextType = "other"): Promise<ContextDocument> {
   if (!file.size) throw new Error("The document is empty.");
   if (file.size > MAX_DOCUMENT_BYTES) throw new Error("Maximum upload size is 5 MB.");
   if (!/\.(pdf|docx|txt)$/i.test(file.name)) throw new Error("Choose a PDF, DOCX or UTF-8 TXT file.");
-  return (await request("/documents", { method: "POST", signal, body: file, headers: { "Content-Type": "application/octet-stream", "X-Document-Name": encodeURIComponent(file.name) } })).json();
+  return (await request("/documents", { method: "POST", signal, body: file, headers: { "Content-Type": "application/octet-stream", "X-Document-Name": encodeURIComponent(file.name), "X-Context-Type": contextType } })).json();
 }
 export async function deleteDocument(id: string, signal: AbortSignal): Promise<void> {
   await request(`/documents/${encodeURIComponent(id)}`, { method: "DELETE", signal });

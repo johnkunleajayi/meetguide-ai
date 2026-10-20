@@ -16,8 +16,10 @@ class ContextLibrary:
         self.repository, self.storage, self.index = repository, storage, index
 
     def upload(self, user_id: UUID, name: str, content: bytes, context_type: str) -> Document:
-        if context_type != "resume":
-            raise InvalidDocument("Only resume context is supported for now.")
+        import re
+
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", context_type):
+            raise InvalidDocument("Invalid context category.")
         if self.repository.count(user_id) >= 50:
             raise InvalidDocument(
                 "The library supports up to 50 documents. Delete one before uploading."

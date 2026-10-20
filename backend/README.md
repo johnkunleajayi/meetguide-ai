@@ -240,6 +240,63 @@ Google currently lists a free quota for this model, subject to account/region/qu
 
 **Use fictional, non-sensitive documents and conversations for free-tier testing.** Google's unpaid-service terms permit use of submitted inputs/outputs for product improvement and possible human review, and instruct users not to submit sensitive/confidential/personal information: https://ai.google.dev/gemini-api/terms . Paid-service data terms differ; review them before sending real résumé/conversation content. Disabling MeetGuide persistence does not override provider retention/data terms.
 
+### Optional OpenAI Live Cue latency comparison
+
+Gemini remains the default. To deliberately compare only the Live Cue answer provider,
+set these backend-only variables in your ignored `.env` and restart the API:
+
+```dotenv
+LIVE_CUE_ENABLED=true
+LIVE_CUE_PROVIDER=openai
+OPENAI_API_KEY=<your-private-openai-api-key>
+OPENAI_LIVE_CUE_MODEL=gpt-6-luna
+```
+
+Keep the existing `GEMINI_API_KEY`, `LIVE_CUE_MODEL`,
+`TRANSCRIPTION_PROVIDER=gemini` and Intent settings unchanged. Switch
+`LIVE_CUE_PROVIDER=gemini` and restart the API to return to the original adapter.
+There is no automatic fallback between providers, including on missing keys or errors.
+Do not put an OpenAI key in a `VITE_` variable or desktop configuration.
+
+The OpenAI adapter uses HTTPX directly against `POST https://api.openai.com/v1/responses`
+with SSE streaming, `store=false`, strict structured output, 2,200 maximum output tokens,
+and `reasoning.effort=none`. GPT-6 Luna is the current efficient model selected for this
+focused task; its documented `none` setting avoids a reasoning-heavy path. Account/model
+access and real quality/latency must be verified manually. GPT-4.1 mini was considered
+but is deprecated, with a January 14, 2027 shutdown listed in the official documentation.
+References: https://developers.openai.com/api/docs/models/gpt-6-luna and
+https://developers.openai.com/api/docs/deprecations . No SDK or new dependency is added.
+
+The exact existing system instructions and bounded JSON user input are passed as
+`instructions` and one user `input` message. Purpose, objective, conversation, question
+and selected excerpts are unchanged. Only the wire schema makes the existing
+`evidence_ids` property required (it may still be empty), as strict OpenAI schemas require.
+No tools, account-wide context, conversation IDs or stored provider conversations are used.
+`store=false` disables Responses application storage; it is not a claim of zero provider
+retention. Review your API account's data controls before testing private material.
+
+OpenAI content deltas feed the same sentence-gated draft preview and NDJSON
+`partial` / `reset` / `ready` / `error` transport. Final reconstruction and the shared
+grounding validator remain authoritative. HTTP/stream errors are sanitized and not
+automatically retried. The existing one conservative regeneration after validation
+rejection remains within the shared 27-second deadline (25-second HTTPX timeout).
+Legacy whole-response clients buffer this same adapter stream before receiving their result.
+
+The existing content-free `[MeetGuide Timing]` record adds `provider` and `model` for
+both adapters; all `stream_diagnostics` boundaries, question IDs and attempt numbers
+remain comparable. The request-start/header/raw-chunk/content/display/yield/completion/
+validation durations have the same definitions. Native first-output/ready timings are
+unchanged. Failure logs contain fixed categories and HTTP status only.
+
+For a controlled manual A/B test, use the same preparation, selected documents and
+question, starting a fresh desktop session for each provider so conversation and duplicate
+state are equivalent. Record the Gemini baseline, stop the session, switch only
+`LIVE_CUE_PROVIDER` to `openai`, restart the backend and repeat. Compare response quality,
+excerpt counts/context sizes, header wait, first useful output and completion timings.
+Ask three distinct questions while one is generating to check the unchanged FIFO/feed;
+test Remove and Retry as before. Do not switch providers midway through an active session.
+Automated tests use fictional content and mocked HTTPX streams only, with no provider calls.
+
 ### Data minimization and answer contract
 
 Each generation request contains the fixed answer instructions, question (at most 1,600 characters), at most six recent turns (at most 1,000 characters each / 4,000 total), and at most three relevant owned document chunks (1,200 characters each / 3,600 total). Short follow-up retrieval includes recent Them/You topics so references like 'the project' can find the earlier subject. No full résumé, raw file, audio, account email, session token, document filename or storage path is deliberately included. Selected excerpts can themselves contain personal data. Conversation is used to resolve references, not as verified personal-history evidence.
@@ -278,3 +335,60 @@ Input: candidate text (1,600 characters), up to six transcript turns (4,000 tota
 The classifier requests at most 384 output tokens, has an 8-second deadline, one in-flight call per account / four globally per process, a 32 KiB input cap and the existing bounded Gemini JSON transport. Error responses are sanitized and no-store; no transcript or key logging is added. Native routing deduplicates candidates and applies an additional session call budget. Unavailability, quota and malformed output cause deterministic fallback rather than stopping transcription. Existing answer retrieval/generation/grounding remain unchanged.
 
 For a safe manual test, use a fictional context document and synthetic audio in the development desktop app. Ask the split Salesforce integration request, then “How did you undo” / “the Salesforce migration?” without removing a card. Both cards should remain. Ask three distinct questions while an answer is preparing, remove the middle completed card, then ask Q4. Stop/restart and sign out to verify the feed clears. The installed beta is unchanged; no installer is rebuilt here.
+
+## Live Cue latency diagnostics (development)
+
+Run the backend in development/test environment (existing configuration; do not change credentials). Content-free JSON lines prefixed `[MeetGuide Timing]` appear in the **Uvicorn terminal**, including at warning log level. They contain a validated opaque question ID, retrieval and generation/validation durations, bounded context lengths/counts, generation attempt count, and fixed failure categories. HTTP response headers expose only the correlation ID and backend duration to the native client. `backend_total_ms` covers the endpoint handler, excluding authentication/dependency resolution and response serialization; the desktop remainder includes those costs plus network and client processing.
+
+Legacy JSON requests use non-streaming `generateContent` and report `live_cue_streaming=false` with null first-output latency. The current desktop negotiates the streaming path described below, which records actual first useful output. Generation timing accumulates the existing conservative regeneration attempts; attempt count reveals when that happened. No prompts, questions, résumé excerpts, answers, credentials or provider error bodies are emitted by these diagnostics. No new database/file persistence, tokenizer, cache, model or prompt changes are involved. STT final records use a stream ID + source + segment, which native receipt and assembly records link to the question ID. Packet timing describes transport packets, never physical speech onset. Cross-process Unix timestamps help join records but are not a clock-synchronized measure of one-way network latency.
+
+
+## Session preparation and explicit document scope
+
+Web `/app` now prepares a purpose, objective and optional document selection; desktop reviews the active preparation before Start Session. Purpose/category identifiers are extensible slugs, not database enums. Six initial purposes cover interviews, sales, client/internal meetings, presentations and custom objectives. Reusable PDF/DOCX/TXT files retain the existing 5 MB validation, extraction, storage and BM25 infrastructure. A document's role can differ between preparations. Up to 50 documents can be selected per preparation; no documents is valid.
+
+Migration `0004_session_preparations` adds `session_preparations`, `preparation_documents`, `active_preparations`, and an ownership composite unique constraint on existing documents. Composite foreign keys enforce account ownership and cascade attachment removal on actual document deletion. It does not delete, rewrite or automatically select existing résumés. There is no automatic preparation backfill. Existing documents become reusable choices, never implicit cue evidence.
+
+Review the migration and back up the database before applying it later. From the repository root:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic current
+```
+
+The implementation/automated verification does not run these against Neon. Restart the backend after deployment. The updated web/desktop require this migration; an older desktop without preparation support cannot generate cues against the updated endpoint until upgraded (no installer is rebuilt here).
+
+Authenticated APIs: GET/POST `/api/preparations`, PUT `/{id}`, POST `/{id}/activate`, POST `/{id}/freeze`. Browser mutations keep cookie/Origin protection; native operations use the existing opaque bearer session. Freeze is native-only and requires `expected_updated_at`. A changed revision returns 409, requiring refresh/review before Start. Document-only selection saves and actual document deletion update the revision. `/api/context/retrieve` requires an owned `preparation_id`; optional `document_id` can narrow its selection only.
+
+Freeze creates a signed, user-bound snapshot containing purpose, objective and selected document IDs/roles, not document text. It is held only in native memory and expires after 12 hours. It uses the existing `AUTH_STATE_SECRET` signing material with a separate salt; development's existing ephemeral signing-key fallback means backend restart invalidates snapshots. Production must retain the existing stable auth signing secret across workers/restarts. No new secret or real `.env` changes are made.
+
+Every cue resolves this signed scope and retrieves only ready documents belonging to the caller AND selected in that scope. Switching/editing a saved preparation cannot change a running session's selection. Actual document deletion remains authoritative: deleted text is never recoverable through an old snapshot. Detaching a document requires saving the preparation and keeps the reusable document. Delete from account removes the file, text/chunks and all attachment links; failed deletion retains the existing non-retrievable tombstone/retry behavior.
+
+One grounded answer engine receives structured purpose/objective plus the existing bounded question/conversation and up to three 1,200-character excerpts. Objectives are untrusted context, not verified personal/company/product facts. Existing validation, conservative regeneration and content-free latency measurements remain intact. Preparation metadata persists; transcripts, cue answers and live snapshots are not persisted. Gemini remains the transcription default and Intent/queue semantics are unchanged.
+
+### Combined manual verification later
+
+1. Apply/review migration when ready, restart backend and run current web/desktop development builds. No immediate manual testing is required.
+2. In `/app`, prepare an interview with an explicitly selected existing résumé. Save it; reload to verify persistence. Create a sales preparation without documents, then a client preparation with a fictional client file. Verify each saved selection and active state separately.
+3. Detach/save a reusable file and verify it remains available. Reuse it in another preparation. Cancel actual deletion, then confirm deletion of a disposable file; verify it disappears from every preparation and retrieval.
+4. In desktop, refresh/review purpose, objective and count, change preparation, then Start in Both mode. If web edits occurred after review, Start must request refresh. During a running session, change web purpose/selection: the live session must retain its starting scope. Stop/refresh/start deliberately selects the next scope.
+5. Ask an interview question, sales question and contextual follow-up in their appropriate sessions. Confirm no unrelated résumé/client facts, FIFO multi-cue behavior, individual Remove/Retry and Them/You separation. No-document sessions should give honest general assistance. Stop/restart/logout must clear live data.
+6. Later compare Q1–Q4 using the existing `[MeetGuide Timing]` backend/native logs. No model, debounce or quality optimization was performed. Check light/dark and 320px/mobile preparation layout and keyboard navigation when convenient.
+
+
+## Streaming Live Cues
+
+The current desktop requests `POST /api/cues/generate` with `Accept: application/x-ndjson`, existing native bearer authentication, the frozen preparation token, question ID and client attempt number. Legacy JSON clients retain the validated whole-response contract. Gemini Live Cue generation uses the same model, prompt, structured Draft schema, 2,200 output-token limit, context/excerpts and answer requirements via `streamGenerateContent?alt=sse`. Intent keeps its existing non-streaming request and local fallback; transcription is unchanged.
+
+The backend reconstructs bounded JSON fragments and emits `partial`, `reset`, `ready` or `error` events. Only decoded complete sentences passing provisional grounding/coaching checks can appear early. With no evidence, previews are further restricted to clearly hypothetical/limitation language. Drafts are explicitly labelled as awaiting final grounding checks: these checks cannot guarantee full-answer semantic correctness before completion. Every final answer must pass the unchanged full validator. Rejection clears the provisional text before the existing single conservative regeneration; failure clears it and offers Retry. No raw protocol/JSON is displayed.
+
+Rust parses bounded NDJSON across HTTP/UTF-8 packet boundaries, verifies question ID/attempt, updates the same card and pushes `meetguide-cue-update` to the local main window. React subscribes, reads one initial snapshot, then uses pushed updates instead of polling Live Cues. Transcription's existing behavior is unchanged. States: Queued, Preparing answer, Responding (draft), Ready to speak, Answer unavailable.
+
+Only one answer job runs at a time. Removing a responding card hides it while its current generation continues invisibly to completion/failure; it retains its FIFO slot until then. Other questions, documents and conversation understanding are untouched. Failed cards clear partial text. Retry retains question ID, increments the client attempt, and starts with empty answer text. Continuation versions and session epochs reject stale progress. Stop/logout cancels native work; backend disconnect cleanup cancels its producer and releases concurrency accounting. Completed cards remain session-only without automatic pruning.
+
+No SDK or automatic HTTP retry is used. HTTPX timeout remains 25 seconds, the shared answer-generation deadline remains 27 seconds across at most two validation attempts, and native HTTP timeout remains 35 seconds. Streaming errors after headers use a terminal error frame rather than changing HTTP status. There are no added retries for 503/429/network failures.
+
+Development `[MeetGuide Timing]` logs include `live_cue_streaming=true`, first useful output and completion timestamps (Unix milliseconds), monotonic time-to-first-output, generation/retrieval/validation/backend durations, counts and fixed failure categories. Native records add question/final-transcript-to-first-output timings alongside existing ready/queue/Intent timings; UI records add observation delay per attempt. These logs contain no private content, keys or tokens. Timing metadata measures software stages, not physical speech onset.
+
+For the real baseline comparison later: restart backend and the native Tauri development app (new listen/unlisten permissions require a native restart), review the same preparation and start a fresh Both-mode session. Ask “Tell me about yourself” once. Confirm draft sentences appear in Responding before Ready to speak, then compare first-output and full-generation timings using the same question ID. Ask three distinct questions while work remains; confirm FIFO and retained cards. Remove a responding card; subsequent questions must wait for its active generation, then continue. If a transient failure occurs, Retry must restart empty with the same question ID and a higher attempt. Stop/restart/logout must clear live state. No installer rebuild, migration or credential change is required. No real-provider latency improvement has been claimed from mocked tests.

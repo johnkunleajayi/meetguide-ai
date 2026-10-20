@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, defer
 
 from app.db.session import get_db
@@ -51,7 +51,38 @@ class ContextRepository:
             statement = statement.where(Document.id == document_id)
         return list(self.database.execute(statement).all())
 
+    def scoped_rows(self, user_id: UUID, document_ids: list[UUID]):
+        if not document_ids:
+            return []
+        return list(
+            self.database.execute(
+                select(Document, DocumentChunk)
+                .options(defer(Document.extracted_text))
+                .join(DocumentChunk, DocumentChunk.document_id == Document.id)
+                .where(
+                    Document.user_id == user_id,
+                    Document.status == "ready",
+                    Document.id.in_(document_ids),
+                )
+            ).all()
+        )
+
     def remove(self, document: Document) -> None:
+        from app.models.preparation import Preparation, PreparationDocument
+
+        self.database.execute(
+            update(Preparation)
+            .where(
+                Preparation.user_id == document.user_id,
+                Preparation.id.in_(
+                    select(PreparationDocument.preparation_id).where(
+                        PreparationDocument.user_id == document.user_id,
+                        PreparationDocument.document_id == document.id,
+                    )
+                ),
+            )
+            .values(updated_at=func.now())
+        )
         # Ownership was checked under a row lock; DB cascade removes every chunk.
         self.database.execute(
             delete(Document).where(Document.id == document.id, Document.user_id == document.user_id)

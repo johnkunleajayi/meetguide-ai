@@ -83,6 +83,8 @@ impl AudioService {
             store.snapshot.session_id
         };
         self.cues.reset(relay.as_ref().map(|_| session_id));
+        self.cues
+            .set_preparation(relay.as_ref().and_then(|r| r.preparation_token.clone()));
         if relay.is_some() {
             crate::cue::start(transcript.clone(), self.cues.clone());
         }
@@ -239,6 +241,8 @@ pub async fn audio_devices() -> Result<Devices, String> {
 
 #[tauri::command]
 pub async fn audio_start(
+    preparation_id: String,
+    preparation_revision: String,
     options: CaptureOptions,
     audio: State<'_, Arc<AudioService>>,
     auth: State<'_, Arc<crate::auth::AuthService>>,
@@ -252,7 +256,11 @@ pub async fn audio_start(
                 return Err("Sign in to MeetGuide before starting audio capture.");
             }
             let token = crate::vault::load()?.ok_or("Sign in before starting transcription.")?;
+            let api = crate::api::Api::new()?;
+            let preparation_token =
+                api.freeze_preparation(token.as_str(), &preparation_id, &preparation_revision)?;
             Ok(Some(crate::transcription::RelayConfig {
+                preparation_token: Some(preparation_token),
                 url: crate::api::Api::new()?.transcription_url(),
                 token,
             }))

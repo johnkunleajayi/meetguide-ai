@@ -223,3 +223,32 @@ def test_intent_concurrency_and_body_size_limits(intent_api):
     )
     assert response.status_code == 413
     assert not provider.calls
+
+
+@pytest.mark.parametrize(
+    "failure", [None, TimeoutError(), ProviderUnavailable("RESOURCE_EXHAUSTED", 429)]
+)
+def test_intent_timing_is_correlated_and_content_free(intent_api, caplog, failure):
+    client, provider = intent_api
+    provider.failure = failure
+    response = post(
+        client,
+        headers={
+            "Authorization": "Bearer " + "a" * 43,
+            "X-MeetGuide-Question-Id": "q-intent-timing",
+        },
+    )
+    assert response.status_code == (200 if failure is None else 503)
+    record = next(
+        json.loads(item.message.split("[MeetGuide Timing] ", 1)[1])
+        for item in caplog.records
+        if "[MeetGuide Timing]" in item.message
+    )
+    assert record["question_id"] == "q-intent-timing"
+    assert record["intent_route"] == "gemini" and record["intent_request_ms"] >= 0
+    assert record["conversation_turn_count"] == 1
+    if failure is not None:
+        assert record["provider_error_type"] in {"TIMEOUT", "RESOURCE_EXHAUSTED"}
+    assert payload()["text"] not in caplog.text
+    assert payload()["context"][0]["text"] not in caplog.text
+    assert "a" * 43 not in caplog.text

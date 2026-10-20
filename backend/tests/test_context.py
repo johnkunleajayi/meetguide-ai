@@ -10,6 +10,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
+from preparation_fakes import MemoryPreparations
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from sqlalchemy.dialects import postgresql
@@ -24,6 +25,7 @@ from app.core.auth import SESSION_COOKIE
 from app.db.auth_repository import get_auth_repository
 from app.db.base import Base
 from app.models import Document, DocumentChunk, User
+from app.preparations.repository import get_preparations
 
 ORIGIN = {"Origin": "http://127.0.0.1:5173"}
 
@@ -56,6 +58,9 @@ class MemoryContextRepository:
             if chunk.document_id == doc.id
         ]
 
+    def scoped_rows(self, user_id, document_ids):
+        return [(doc, chunk) for doc, chunk in self.rows(user_id, None) if doc.id in document_ids]
+
     def remove(self, document):
         self.documents.pop(document.id, None)
         self.chunks = [chunk for chunk in self.chunks if chunk.document_id != document.id]
@@ -86,6 +91,8 @@ def library(client, tmp_path):
     client.app.dependency_overrides[get_auth_repository] = lambda: Auth()
     client.app.dependency_overrides[get_context_repository] = lambda: repo
     client.app.dependency_overrides[get_storage] = lambda: storage
+    client.app.dependency_overrides[get_preparations] = lambda: preparations
+    preparations = MemoryPreparations(repo)
     client.cookies.set(SESSION_COOKIE, "0" * 43)
     yield client, repo, storage, users
     client.app.dependency_overrides.clear()
@@ -97,6 +104,22 @@ def upload(client, content=b"Experience\nLed a team of six engineers.", name="re
         content=content,
         headers={**ORIGIN, "X-Document-Name": name, "Content-Type": "application/octet-stream"},
     )
+
+
+def prepared(client, identifiers=()):
+    response = client.post(
+        "/api/preparations",
+        json={
+            "purpose": "custom",
+            "objective": "Fictional context retrieval",
+            "documents": [
+                {"document_id": identifier, "context_role": "other"} for identifier in identifiers
+            ],
+        },
+        headers=ORIGIN,
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
 
 
 def make_pdf(text="Salesforce integration and API automation."):
@@ -147,7 +170,7 @@ def test_authenticated_upload_list_and_private_response(library):
     response = upload(client)
     assert response.status_code == 201
     body = response.json()
-    assert body["context_type"] == "resume" and body["status"] == "ready"
+    assert body["context_type"] == "other" and body["status"] == "ready"
     assert body["media_type"] == "text/plain"
     assert not {"storage_key", "extracted_text", "user_id", "sha256"}.intersection(body)
     document = repo.documents[UUID(body["id"])]
@@ -250,11 +273,16 @@ def test_ownership_isolation_for_list_retrieval_and_delete(library):
     client, repo, storage, *_ = library
     identifier = upload(client, b"Salesforce integration API automation.").json()["id"]
     client.cookies.set(SESSION_COOKIE, "1" * 43)
+    preparation_id = prepared(client)
     assert client.get("/api/context/documents").json() == []
     for document_id in [None, identifier]:
         response = client.post(
             "/api/context/retrieve",
-            json={"query": "Salesforce", "document_id": document_id},
+            json={
+                "preparation_id": preparation_id,
+                "query": "Salesforce",
+                "document_id": document_id,
+            },
             headers=ORIGIN,
         )
         assert response.status_code == 200 and response.json() == []
@@ -270,16 +298,25 @@ def test_retrieval_ranking_identity_and_no_matches(library):
     second = upload(
         client, b"Leadership\nManaged and mentored a team of six engineers.", "leadership.txt"
     ).json()["id"]
+    preparation_id = prepared(client, [first, second])
     for query, expected in [
         ("Salesforce integration experience", first),
         ("leadership experience", second),
     ]:
-        hits = client.post("/api/context/retrieve", json={"query": query}, headers=ORIGIN).json()
+        hits = client.post(
+            "/api/context/retrieve",
+            json={"preparation_id": preparation_id, "query": query},
+            headers=ORIGIN,
+        ).json()
         assert hits[0]["document_id"] == expected
         assert hits[0]["chunk_id"] and hits[0]["text"] and hits[0]["document_name"]
         assert hits[0]["score"] > 0 and hits[0]["rank"] == 1
     assert (
-        client.post("/api/context/retrieve", json={"query": "astrophysics"}, headers=ORIGIN).json()
+        client.post(
+            "/api/context/retrieve",
+            json={"preparation_id": preparation_id, "query": "astrophysics"},
+            headers=ORIGIN,
+        ).json()
         == []
     )
 
@@ -287,12 +324,17 @@ def test_retrieval_ranking_identity_and_no_matches(library):
 def test_delete_removes_file_document_text_chunks_and_search_results(library):
     client, repo, storage, *_ = library
     identifier = upload(client).json()["id"]
+    preparation_id = prepared(client, [identifier])
     response = client.delete(f"/api/context/documents/{identifier}", headers=ORIGIN)
     assert response.status_code == 204
     assert not repo.documents and not repo.chunks and not list(storage.root.iterdir())
     assert client.get("/api/context/documents").json() == []
     assert (
-        client.post("/api/context/retrieve", json={"query": "leadership"}, headers=ORIGIN).json()
+        client.post(
+            "/api/context/retrieve",
+            json={"preparation_id": preparation_id, "query": "leadership"},
+            headers=ORIGIN,
+        ).json()
         == []
     )
 
@@ -300,6 +342,7 @@ def test_delete_removes_file_document_text_chunks_and_search_results(library):
 def test_failed_delete_is_tombstoned_not_retrievable_and_retryable(library, monkeypatch):
     client, repo, storage, *_ = library
     identifier = upload(client).json()["id"]
+    preparation_id = prepared(client, [identifier])
     original = storage.delete
     monkeypatch.setattr(
         storage, "delete", lambda _: (_ for _ in ()).throw(OSError("private storage path"))
@@ -308,7 +351,11 @@ def test_failed_delete_is_tombstoned_not_retrievable_and_retryable(library, monk
     assert response.status_code == 503 and "private storage path" not in response.text
     assert repo.documents[UUID(identifier)].status == "deleting"
     assert (
-        client.post("/api/context/retrieve", json={"query": "leadership"}, headers=ORIGIN).json()
+        client.post(
+            "/api/context/retrieve",
+            json={"preparation_id": preparation_id, "query": "leadership"},
+            headers=ORIGIN,
+        ).json()
         == []
     )
     monkeypatch.setattr(storage, "delete", original)
@@ -394,7 +441,7 @@ def test_repository_sql_scopes_all_reads_and_deletes():
     repo.remove(Document(id=identifier, user_id=owner))
     for query in database.statements:
         sql = str(query.compile(dialect=postgresql.dialect()))
-        assert "context_documents.user_id =" in sql and owner in query.compile().params.values()
+        assert "user_id =" in sql and owner in query.compile().params.values()
         assert "context_documents.extracted_text" not in sql
 
 
@@ -418,7 +465,7 @@ def test_migration_metadata_and_offline_ddl():
     config = Config(str(backend / "alembic.ini"))
     config.set_main_option("script_location", str(backend / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0003_context_library"]
+    assert scripts.get_heads() == ["0004_session_preparations"]
     revision = scripts.get_revision("0003_context_library")
     assert revision.down_revision == "0002_sessions"
     output = StringIO()
@@ -437,7 +484,11 @@ def test_migration_metadata_and_offline_ddl():
     for model in [Document, DocumentChunk]:
         assert model.__table__.metadata is Base.metadata
         expected.append(
-            normalize_sql(str(CreateTable(model.__table__).compile(dialect=postgresql.dialect())))
+            normalize_sql(
+                str(CreateTable(model.__table__).compile(dialect=postgresql.dialect())).replace(
+                    ", \n\tCONSTRAINT uq_document_owner UNIQUE (id, user_id)", ""
+                )
+            )
         )
         expected.extend(
             normalize_sql(str(CreateIndex(index).compile(dialect=postgresql.dialect())))

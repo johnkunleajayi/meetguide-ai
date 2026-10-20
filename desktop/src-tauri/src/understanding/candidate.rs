@@ -4,6 +4,7 @@ use super::domain::*;
 
 #[derive(Clone)]
 pub struct Candidate {
+    pub timing: crate::timing::CandidateTiming,
     pub turn_id: u64,
     pub revision: u64,
     pub text: String,

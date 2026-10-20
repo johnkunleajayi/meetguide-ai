@@ -100,7 +100,10 @@ impl Router {
         let references = tokens
             .split_whitespace()
             .any(|word| matches!(word, "it" | "that" | "next" | "result"));
-        let semantic = c.revision > 1 || local.is_none() || short || references;
+        // Length and ASR revision do not make a confident request ambiguous.
+        // Keep semantic help for continuations and context-dependent follow-ups.
+        let independent = local_question(&delta, &[]).is_some();
+        let semantic = local.is_none() || continuation || linked || references || !independent;
         let fallback = || {
             local.clone().map(|question| IntentResult {
                 kind: if continuation && linked {
@@ -117,6 +120,19 @@ impl Router {
                 confidence: 0.9,
             })
         };
+        let mut question_timing = crate::timing::QuestionTiming {
+            candidate: c.timing.clone(),
+            ..Default::default()
+        };
+        if let Some(id) = previous_card.and_then(|id| service.question_id(epoch, id)) {
+            if continuation {
+                question_timing.candidate.question_id = id;
+            }
+        }
+        crate::timing::emit(
+            serde_json::json!({"stage":"intent_routing","question_id":question_timing.candidate.question_id,"candidate_id":c.timing.question_id,"at_unix_ms":crate::timing::unix_ms()}),
+        );
+        let intent_started = Instant::now();
         let result = if semantic {
             self.calls
                 .retain(|at| now.duration_since(*at) < Duration::from_secs(60));
@@ -126,7 +142,10 @@ impl Router {
                 self.calls.push_back(now);
                 let input = payload(delta.clone(), c.context.clone());
                 if let Some(input) = input {
+                    question_timing.intent_used = true;
+                    question_timing.intent_route = "gemini";
                     classify(IntentInput {
+                        question_id: question_timing.candidate.question_id.clone(),
                         text: if previous_card.is_some() {
                             delta
                         } else {
@@ -150,6 +169,7 @@ impl Router {
                     Some(result)
                 }
                 _ => {
+                    question_timing.intent_route = "fallback";
                     service.notice(epoch, Some("Semantic understanding is unavailable. Local question detection remains active."));
                     fallback()
                 }
@@ -157,6 +177,12 @@ impl Router {
         } else {
             fallback()
         };
+        question_timing.intent_request_ms = if question_timing.intent_used {
+            intent_started.elapsed().as_secs_f64() * 1000.0
+        } else {
+            0.0
+        };
+        question_timing.detected_at = Instant::now();
         let mut card = previous_card;
         let mut question = None;
         if let Some(mut result) = result {
@@ -174,7 +200,7 @@ impl Router {
             if result.kind != "NOT_ACTIONABLE" && result.confidence >= 0.82 {
                 question = Some(result.normalized_request.clone());
                 if let Some(input) = payload(result.normalized_request, c.context.clone()) {
-                    card = service.enqueue(
+                    card = service.enqueue_timed(
                         epoch,
                         if result.kind == "CONTINUATION" {
                             previous_card
@@ -182,6 +208,7 @@ impl Router {
                             None
                         },
                         input,
+                        question_timing.clone(),
                     );
                 }
             }
@@ -252,7 +279,7 @@ pub fn start(store: Arc<Mutex<crate::transcription::TranscriptStore>>, service: 
         while answers.active(epoch) {
             let gate = tokio::select! { biased; _ = cancelled.changed() => return, gate = answers.gate.lock() => gate };
             if let Some(job) = answers.next(epoch) {
-                let result = tokio::select! { biased; _ = cancelled.changed() => return, result = super::transport::generate(job.input.clone()) => result };
+                let result = tokio::select! { biased; _ = cancelled.changed() => return, result = super::transport::generate(job.input.clone(), &job.timing.candidate.question_id, job.preparation_token.as_deref().map(|s| s.as_str()), job.timing.attempt, |text| answers.progress(epoch, &job, text)) => result };
                 answers.finish(epoch, job, result);
             }
             drop(gate);

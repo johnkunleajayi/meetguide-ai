@@ -1,3 +1,4 @@
+vi.mock("../src/lib/preparation", () => ({ readPreparations: vi.fn(async () => [{ id: "p1", purpose: "custom", objective: "Fictional meeting", documents: [], active: true, updated_at: "revision-1" }]), activatePreparation: vi.fn(async () => {}), purposeLabel: (id: string) => id }));
 vi.mock("../src/lib/transcription", () => ({ readTranscript: vi.fn(async () => null), sourceLabel: (source: string) => source === "system" ? "Them" : "You" }));
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -26,7 +27,7 @@ it("starts loopback, shows RMS activity, stops and restarts", async () => {
   render(<AudioSession authenticated />); await ready();
   const button = start(); fireEvent.click(button); fireEvent.click(button);
   await screen.findByText("Listening"); expect(audio.startAudio).toHaveBeenCalledOnce();
-  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "system", systemDeviceId: null, microphoneDeviceId: null });
+  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "system", systemDeviceId: null, microphoneDeviceId: null }, "p1", "revision-1");
   expect(Number(screen.getByRole("meter", { name: "System Audio activity" }).getAttribute("value"))).toBeCloseTo(66.6667, 3);
   fireEvent.click(screen.getByText("Stop Session")); await ready(); expect(screen.queryByRole("meter")).toBeNull();
   fireEvent.click(start()); await screen.findByText("Listening"); expect(audio.startAudio).toHaveBeenCalledTimes(2);
@@ -38,7 +39,7 @@ it("supports both streams and selected devices", async () => {
   fireEvent.change(screen.getByLabelText("Playback device"), { target: { value: "speakers" } });
   fireEvent.change(screen.getByLabelText("Microphone device"), { target: { value: "mic" } });
   fireEvent.click(start()); await screen.findByText("Listening");
-  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "both", systemDeviceId: "speakers", microphoneDeviceId: "mic" });
+  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "both", systemDeviceId: "speakers", microphoneDeviceId: "mic" }, "p1", "revision-1");
   expect(screen.getByRole("meter", { name: "Microphone activity" })).toBeTruthy();
 });
 it("supports microphone only", async () => {
@@ -46,7 +47,7 @@ it("supports microphone only", async () => {
   render(<AudioSession authenticated />); await ready();
   fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "microphone" } });
   expect(screen.queryByLabelText("Playback device")).toBeNull(); fireEvent.click(start()); await screen.findByText("Listening");
-  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "microphone", systemDeviceId: null, microphoneDeviceId: null });
+  expect(audio.startAudio).toHaveBeenCalledWith({ mode: "microphone", systemDeviceId: null, microphoneDeviceId: null }, "p1", "revision-1");
 });
 it("handles missing microphone and refresh recovery", async () => {
   vi.mocked(audio.listAudioDevices).mockResolvedValueOnce({ ...devices, microphones: [] });

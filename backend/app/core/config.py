@@ -30,9 +30,13 @@ class Settings(BaseSettings):
 
     gemini_intent_enabled: bool = True
     live_cue_enabled: bool = False
-    live_cue_provider: Literal["gemini"] = "gemini"
+    live_cue_provider: Literal["gemini", "openai"] = "gemini"
     gemini_api_key: SecretStr | None = Field(default=None, repr=False)
     live_cue_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^gemini-[a-z0-9.-]+$")
+    openai_api_key: SecretStr | None = Field(default=None, repr=False)
+    openai_live_cue_model: str = Field(
+        default="gpt-6-luna", pattern=r"^gpt-[a-z0-9.-]+$", max_length=100
+    )
 
     transcription_provider: Literal["gemini", "deepgram"] = "gemini"
     gemini_transcribe_model: str = Field(

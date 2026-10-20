@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -18,6 +19,8 @@ from app.cues.prompt import HONEST_BRIDGE, SYSTEM, user_prompt, validate_draft
 from app.cues.provider import ProviderUnavailable
 from app.cues.service import generate_cue, retrieve_evidence
 from app.db.auth_repository import get_auth_repository
+from app.preparations.domain import PreparationView, PreparedContext, Selection
+from app.preparations.snapshot import freeze
 
 PARAGRAPHS = [
     (
@@ -89,7 +92,7 @@ def cue_api(client):
             self.owners = []
             self.empty = False
 
-        def rows(self, owner, document):
+        def scoped_rows(self, owner, documents):
             self.owners.append(owner)
             return (
                 []
@@ -111,6 +114,16 @@ def cue_api(client):
     client.app.dependency_overrides[get_auth_repository] = lambda: Auth()
     client.app.dependency_overrides[get_context_repository] = lambda: repository
     client.app.dependency_overrides[get_provider] = lambda: provider
+    now = datetime.now(UTC)
+    view = PreparationView(
+        id=uuid4(),
+        purpose="job_interview",
+        objective="Fictional interview",
+        documents=[Selection(document_id=item.document_id, context_role="resume")],
+        created_at=now,
+        updated_at=now,
+    )
+    client.preparation_token = freeze(client.app, user.id, view)
     yield client, provider, repository, user
     client.app.dependency_overrides.clear()
 
@@ -118,7 +131,7 @@ def cue_api(client):
 def post(client, body=None, **kwargs):
     return client.post(
         "/api/cues/generate",
-        json=body or payload().model_dump(),
+        json={**(body or payload().model_dump()), "preparation_token": client.preparation_token},
         headers={"Authorization": "Bearer " + "a" * 43},
         **kwargs,
     )
@@ -174,7 +187,7 @@ def test_cookie_only_missing_and_untrusted_origin_rejected(cue_api):
     assert (
         client.post(
             "/api/cues/generate",
-            json=payload().model_dump(),
+            json={**payload().model_dump(), "preparation_token": client.preparation_token},
             headers={"Authorization": "Bearer " + "a" * 43, "Origin": "https://untrusted.example"},
         ).status_code
         == 403
@@ -210,17 +223,28 @@ def test_busy_and_oversized_request_do_not_call_provider(cue_api):
 def test_retrieval_uses_recent_you_topic_for_followup_and_only_owned_rows():
     owner = uuid4()
     calls = []
+    document_id = uuid4()
 
     class Repository:
-        def rows(self, user, document):
+        def scoped_rows(self, user, documents):
             calls.append(user)
             return [
-                (SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4(), position=0, text=QUOTE))
+                (
+                    SimpleNamespace(id=document_id),
+                    SimpleNamespace(id=uuid4(), position=0, text=QUOTE),
+                )
             ]
 
     request = payload(
         question="What was the biggest challenge?",
         context=[{"speaker": "you", "text": "I worked on Salesforce integration."}],
+    )
+    request._preparation = PreparedContext(
+        preparation_id=uuid4(),
+        user_id=owner,
+        purpose="job_interview",
+        objective="Fictional interview",
+        documents=[Selection(document_id=document_id, context_role="resume")],
     )
     result = retrieve_evidence(Repository(), owner, request)
     assert calls == [owner] and result and QUOTE in result[0].text
@@ -230,17 +254,27 @@ def test_retrieval_uses_recent_you_topic_for_followup_and_only_owned_rows():
 
 
 def test_evidence_is_at_most_three_excerpts_and_3600_characters():
+    document_id, owner = uuid4(), uuid4()
+
     class Repository:
-        def rows(self, user, document):
+        def scoped_rows(self, user, documents):
             return [
                 (
-                    SimpleNamespace(id=uuid4()),
+                    SimpleNamespace(id=document_id),
                     SimpleNamespace(id=uuid4(), position=i, text="Salesforce " * 500),
                 )
                 for i in range(10)
             ]
 
-    result = retrieve_evidence(Repository(), uuid4(), payload())
+    request = payload()
+    request._preparation = PreparedContext(
+        preparation_id=uuid4(),
+        user_id=owner,
+        purpose="job_interview",
+        objective="Fictional interview",
+        documents=[Selection(document_id=document_id, context_role="resume")],
+    )
+    result = retrieve_evidence(Repository(), owner, request)
     assert len(result) == 3 and sum(len(item.text) for item in result) <= 3600
 
 
@@ -399,3 +433,70 @@ def test_short_finalized_followup_uses_context_and_preserves_input_guards(cue_ap
     assert response.status_code == 200
     assert len(provider.calls) == 1
     assert provider.calls[0][1]["question"] == "Why?"
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_content_free_stage_timings_and_retry(cue_api, caplog, failed):
+    client, provider, repository, _ = cue_api
+    provider.fail = failed
+    response = client.post(
+        "/api/cues/generate",
+        json={**payload().model_dump(), "preparation_token": client.preparation_token},
+        headers={"Authorization": "Bearer " + "a" * 43, "X-MeetGuide-Question-Id": "q-timing-test"},
+    )
+    assert response.status_code == (503 if failed else 200)
+    assert response.headers["x-meetguide-question-id"] == "q-timing-test"
+    assert float(response.headers["x-meetguide-backend-ms"]) >= 0
+    records = [
+        json.loads(record.message.split("[MeetGuide Timing] ", 1)[1])
+        for record in caplog.records
+        if "[MeetGuide Timing]" in record.message
+    ]
+    timing = records[-1]
+    assert timing["question_id"] == "q-timing-test"
+    assert timing["retrieval_ms"] >= 0 and timing["live_cue_generation_ms"] >= 0
+    assert timing["backend_total_ms"] >= timing["retrieval_ms"]
+    assert timing["conversation_turn_count"] == timing["conversation_context_char_count"] == 0
+    assert timing["question_char_count"] == len(payload().question)
+    assert timing["retrieved_excerpt_count"] == 1 and timing["retrieved_context_char_count"] == len(
+        QUOTE
+    )
+    assert (
+        timing["live_cue_streaming"] is False and timing["live_cue_time_to_first_output_ms"] is None
+    )
+    if failed:
+        assert timing["provider_error_type"] == "PROVIDER_UNAVAILABLE"
+        provider.fail = False
+        assert post(client).status_code == 200
+    else:
+        assert timing["validation_ms"] >= 0
+        assert response.json()["answer"].startswith("I developed Salesforce")
+    logged = json.dumps(records)
+    for secret in [QUOTE, payload().question, "a" * 43, PARAGRAPHS[0]]:
+        assert secret not in logged
+
+
+def test_unsafe_correlation_and_error_details_are_not_logged(caplog):
+    from app.core.timing import Timing
+
+    timing = Timing("private-resume-text")
+    timing.finish()
+    assert timing.values["question_id"].startswith("q-")
+    assert "private-resume-text" not in caplog.text
+    error = ProviderUnavailable("private-provider-content", "secret-status")
+    assert error.reason == "PROVIDER_UNAVAILABLE" and error.status is None
+
+
+def test_timing_counts_actual_bounded_context_without_logging_it(cue_api, caplog):
+    client, _, _, _ = cue_api
+    private = "FICTIONAL_PRIVATE_CONTEXT_SENTINEL"
+    response = post(client, payload(context=[{"speaker": "them", "text": private}]).model_dump())
+    assert response.status_code == 200
+    record = next(
+        json.loads(item.message.split("[MeetGuide Timing] ", 1)[1])
+        for item in caplog.records
+        if "[MeetGuide Timing]" in item.message
+    )
+    assert record["conversation_turn_count"] == 1
+    assert record["conversation_context_char_count"] == len(private)
+    assert private not in caplog.text

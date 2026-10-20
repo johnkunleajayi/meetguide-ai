@@ -1,6 +1,6 @@
 """Provider-neutral streaming speech-to-text contract. No storage or logging."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -9,6 +9,7 @@ class TranscriptEvent:
     segment: int
     text: str
     final: bool
+    provider_received_at: float | None = field(default=None, compare=False)
 
 
 class ProviderError(Exception):

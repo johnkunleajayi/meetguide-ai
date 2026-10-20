@@ -28,6 +28,8 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "LIVE_CUE_PROVIDER",
         "LIVE_CUE_MODEL",
         "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENAI_LIVE_CUE_MODEL",
         "CONTEXT_STORAGE_DIR",
         "TRANSCRIPTION_PROVIDER",
         "GEMINI_TRANSCRIBE_MODEL",

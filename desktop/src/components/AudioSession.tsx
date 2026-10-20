@@ -1,3 +1,5 @@
+import { PreparationPicker } from "./PreparationPicker";
+import type { Preparation } from "../lib/preparation";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { useCallback, useEffect, useState } from "react";
 import { useAudioCapture } from "../hooks/useAudioCapture";
@@ -24,6 +26,7 @@ function DeviceSelect({ label, devices, value, setValue, disabled }: { label: st
 
 export function AudioSession({ authenticated, onBusyChange }: { authenticated: boolean; onBusyChange?: (value: boolean) => void }) {
   const { status, pending, error, start, stop } = useAudioCapture(authenticated);
+  const [preparation, setPreparation] = useState<Preparation | null>(null);
   const [mode, setMode] = useState<AudioMode>("system");
   const [devices, setDevices] = useState<AudioDevices>({ system: [], microphones: [] });
   const [system, setSystem] = useState("");
@@ -54,10 +57,10 @@ export function AudioSession({ authenticated, onBusyChange }: { authenticated: b
   const available = (items: AudioDevice[], chosen: string) => items.some((device) => chosen ? device.id === chosen : device.isDefault);
   const missingSystem = hasSystem && !available(devices.system, system);
   const missingMicrophone = hasMicrophone && !available(devices.microphones, microphone);
-  const canStart = authenticated && !locked && !refreshing && !missingSystem && !missingMicrophone;
+  const canStart = authenticated && !!preparation && !locked && !refreshing && !missingSystem && !missingMicrophone;
   const label = pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : listening ? "Listening" : status.state === "error" ? "Capture stopped" : "Ready";
 
-  return <><section className="status-panel" aria-label="Desktop status">
+  return <><PreparationPicker authenticated={authenticated} locked={locked} value={preparation} onChange={setPreparation} /><section className="status-panel" aria-label="Desktop status">
     <div className="status-row">
       <span className="status-label">Application status</span>
       <span className="ready" role="status"><span className={`status-dot${listening ? " is-listening" : ""}`} aria-hidden="true" />{label}</span>
@@ -76,7 +79,7 @@ export function AudioSession({ authenticated, onBusyChange }: { authenticated: b
       {status.microphone && <LevelMeter label="Microphone" value={status.microphone} />}
       {listening || pending === "stopping" ?
         <button className="start-session audio-stop" disabled={!!pending} onClick={() => { void stop(); }}>Stop Session</button> :
-        <button className="start-session" disabled={!canStart} onClick={() => { void start({ mode, systemDeviceId: system || null, microphoneDeviceId: microphone || null }); }}>Start Session</button>}
+        <button className="start-session" disabled={!canStart} onClick={() => { if (preparation) void start({ mode, systemDeviceId: system || null, microphoneDeviceId: microphone || null }, preparation.id, preparation.updated_at); }}>Start Session</button>}
       {!authenticated && <p>Sign in to start a session.</p>}
       {authenticated && !locked && !refreshing && (missingSystem || missingMicrophone) && <p role="alert">{missingSystem ? "No selected/default playback device is available. " : ""}{missingMicrophone ? "No selected/default microphone is available. " : ""}Check Windows Sound settings, then refresh devices.</p>}
       {(error || deviceError) && <p role="alert">{error || deviceError}</p>}

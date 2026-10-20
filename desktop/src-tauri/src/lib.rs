@@ -1,8 +1,10 @@
 mod audio;
 mod cue;
+mod preparation;
+mod timing;
 mod transcription;
 mod understanding;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 mod api;
 mod auth;
 mod loopback;
@@ -13,6 +15,15 @@ pub fn run() {
     tauri::Builder::default()
         .manage(std::sync::Arc::new(auth::AuthService::default()))
         .manage(std::sync::Arc::new(audio::AudioService::default()))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            app.state::<std::sync::Arc<audio::AudioService>>()
+                .cues
+                .set_publisher(std::sync::Arc::new(move |snapshot| {
+                    let _ = handle.emit_to("main", "meetguide-cue-update", snapshot);
+                }));
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 let _ = window.state::<std::sync::Arc<audio::AudioService>>().stop();
@@ -23,6 +34,8 @@ pub fn run() {
             auth::auth_login,
             auth::auth_logout,
             auth::auth_cancel,
+            preparation::preparation_list,
+            preparation::preparation_activate,
             audio::audio_devices,
             audio::audio_start,
             audio::audio_status,

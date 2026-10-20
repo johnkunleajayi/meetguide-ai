@@ -12,6 +12,7 @@ fn request(question: &str) -> CueInput {
 }
 fn reply() -> transport::CueReply {
     transport::CueReply {
+        timing: Default::default(),
         answer: "I tested the integration.\n\nI checked the result.".into(),
         grounding: "general_approach".into(),
         sources: vec![],
@@ -25,6 +26,7 @@ fn service() -> (CueService, u64) {
 }
 fn candidate(id: u64, text: &str, local: Option<&str>, revision: u64) -> Candidate {
     Candidate {
+        timing: Default::default(),
         turn_id: id,
         revision,
         text: text.into(),
@@ -306,7 +308,14 @@ async fn uncertain_speech_reaches_intent_and_unavailable_falls_back() {
 fn local_gate_ignores_you_acknowledgements_and_duplicate_finals() {
     let mut e = UnderstandingEngine::default();
     e.reset(true);
-    e.finalized(Speaker::You, 1, 1, "Tell me about your experience.", 0, 0);
+    e.finalized(
+        Speaker::You,
+        1,
+        1,
+        "Tell me about your professional integration experience.",
+        0,
+        0,
+    );
     e.tick(1200);
     assert!(e.take_candidates().is_empty());
     for (id, text) in [(2, "okay"), (3, "right"), (4, "I see"), (5, "interesting")] {
@@ -318,7 +327,7 @@ fn local_gate_ignores_you_acknowledgements_and_duplicate_finals() {
         Speaker::Them,
         1,
         6,
-        "Tell me about your experience.",
+        "Tell me about your professional integration experience.",
         30000,
         30000,
     );
@@ -328,7 +337,7 @@ fn local_gate_ignores_you_acknowledgements_and_duplicate_finals() {
         Speaker::Them,
         1,
         6,
-        "Tell me about your experience.",
+        "Tell me about your professional integration experience.",
         31000,
         31000,
     );
@@ -543,7 +552,7 @@ async fn semantic_budget_limits_calls_but_local_fallback_preserves_known_questio
     let mut router = worker::Router::default();
     let calls = std::cell::Cell::new(0);
     for id in 1..=13 {
-        let text = format!("How did you test project {id}?");
+        let text = format!("How did you test that in project {id}?");
         router
             .process(candidate(id, &text, Some(&text), 2), &s, epoch, |input| {
                 calls.set(calls.get() + 1);
@@ -636,4 +645,279 @@ async fn an_actionable_label_for_a_clear_assembled_continuation_does_not_duplica
     let cards = s.snapshot().unwrap().cards;
     assert_eq!(cards.len(), 1);
     assert!(cards[0].question.contains("integration and challenges"));
+}
+
+#[test]
+fn timing_preserves_queue_ids_counts_failure_and_retry() {
+    let (s, epoch) = service();
+    let first = s
+        .enqueue(epoch, None, request("How did you handle the integration?"))
+        .unwrap();
+    let second = s
+        .enqueue(epoch, None, request("What was the result?"))
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    let job = s.next(epoch).unwrap();
+    assert!(
+        job.timing.record("queue_processing_started")["queue_wait_ms"]
+            .as_f64()
+            .unwrap()
+            >= 3.0
+    );
+    assert!(job.timing.session_age_seconds >= 0.0);
+    assert_eq!(job.timing.index, 1);
+    assert!(job.timing.session_age_seconds >= 0.0);
+    let id = job.timing.candidate.question_id.clone();
+    assert_eq!(job.timing.attempt, 1);
+    s.finish(epoch, job, Err("private fake failure"));
+    s.retry(1, first).unwrap();
+    let retried = s.next(epoch).unwrap();
+    assert_eq!(retried.timing.candidate.question_id, id);
+    assert_eq!(retried.timing.attempt, 2);
+    assert!(
+        retried.timing.record("cue_ready")["queue_wait_ms"]
+            .as_f64()
+            .unwrap()
+            >= 0.0
+    );
+    let serialized = retried.timing.record("cue_ready").to_string();
+    assert!(!serialized.contains("integration") && !serialized.contains("private"));
+    s.finish(epoch, retried, Ok(reply()));
+    let next = s.next(epoch).unwrap();
+    assert_eq!(next.id, second);
+    assert_eq!(next.timing.index, 2);
+    assert_ne!(next.timing.candidate.question_id, id);
+    assert!(
+        next.timing.record("cue_ready")["final_transcript_to_ready_ms"]
+            .as_f64()
+            .unwrap()
+            >= 0.0
+    );
+}
+
+#[test]
+fn timing_intent_routes_do_not_change_routing() {
+    tauri::async_runtime::block_on(async {
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        router
+            .process(
+                candidate(
+                    51,
+                    "Tell me about your professional integration experience.",
+                    Some("Tell me about your professional integration experience."),
+                    1,
+                ),
+                &s,
+                epoch,
+                unavailable,
+            )
+            .await;
+        let local = s.next(epoch).unwrap();
+        assert_eq!(local.timing.intent_route, "local");
+        assert!(!local.timing.intent_used);
+        assert_eq!(local.timing.intent_request_ms, 0.0);
+        s.finish(epoch, local, Ok(reply()));
+        router
+            .process(
+                candidate(
+                    52,
+                    "Please discuss migration risks in this situation.",
+                    None,
+                    1,
+                ),
+                &s,
+                epoch,
+                action,
+            )
+            .await;
+        let semantic = s.next(epoch).unwrap();
+        assert_eq!(semantic.timing.intent_route, "gemini");
+        assert!(semantic.timing.intent_used && semantic.timing.intent_request_ms >= 0.0);
+        s.finish(epoch, semantic, Ok(reply()));
+        router
+            .process(
+                candidate(53, "What was the result?", Some("What was the result?"), 1),
+                &s,
+                epoch,
+                unavailable,
+            )
+            .await;
+        let fallback = s.next(epoch).unwrap();
+        assert_eq!(fallback.timing.intent_route, "fallback");
+        assert!(fallback.timing.intent_used);
+    });
+}
+
+#[test]
+fn preparation_is_frozen_per_job_and_cleared_on_session_reset() {
+    let (s, epoch) = service();
+    s.set_preparation(Some(zeroize::Zeroizing::new(
+        "fictional-signed-snapshot".into(),
+    )));
+    s.enqueue(epoch, None, request("How did you test the project?"));
+    let job = s.next(epoch).expect("queued job");
+    assert_eq!(
+        job.preparation_token.as_deref().map(|s| s.as_str()),
+        Some("fictional-signed-snapshot")
+    );
+    s.reset(Some(2));
+    let epoch = s.lifecycle().0;
+    s.enqueue(epoch, None, request("What happened next?"));
+    assert!(s.next(epoch).unwrap().preparation_token.is_none());
+    assert_eq!(
+        job.preparation_token.as_deref().map(|s| s.as_str()),
+        Some("fictional-signed-snapshot")
+    );
+}
+
+#[test]
+fn responding_remove_keeps_the_inflight_fifo_slot_until_completion() {
+    let (s, epoch) = service();
+    for question in ["Question one?", "Question two?", "Question three?"] {
+        s.enqueue(epoch, None, request(question));
+    }
+    let one = s.next(epoch).unwrap();
+    s.progress(epoch, &one, Some("I would clarify the goal."));
+    assert_eq!(s.snapshot().unwrap().cards[0].status, "responding");
+    assert!(s.next(epoch).is_none());
+    s.remove(1, one.id).unwrap();
+    assert_eq!(s.snapshot().unwrap().cards.len(), 2);
+    assert!(s.next(epoch).is_none());
+    s.finish(epoch, one, Ok(reply()));
+    for id in [2, 3] {
+        let job = s.next(epoch).unwrap();
+        assert_eq!(job.id, id);
+        s.finish(epoch, job, Ok(reply()));
+    }
+    assert_eq!(
+        s.snapshot()
+            .unwrap()
+            .cards
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+}
+#[test]
+fn partial_failure_retry_and_reset_keep_identity_and_discard_stale_text() {
+    let (s, epoch) = service();
+    s.enqueue(epoch, None, request("What happened next?"));
+    let first = s.next(epoch).unwrap();
+    let id = first.id;
+    let qid = first.timing.candidate.question_id.clone();
+    s.progress(epoch, &first, Some("I would clarify the goal."));
+    s.finish(epoch, first, Err("Provider unavailable"));
+    assert!(s.snapshot().unwrap().cards[0].answer.is_none());
+    s.retry(1, id).unwrap();
+    let retry = s.next(epoch).unwrap();
+    assert_eq!(retry.timing.attempt, 2);
+    assert_eq!(retry.timing.candidate.question_id, qid);
+    s.progress(epoch, &retry, Some("I would check the plan."));
+    assert_eq!(
+        s.snapshot().unwrap().cards[0].answer.as_deref(),
+        Some("I would check the plan.")
+    );
+    s.reset(Some(2));
+    s.progress(epoch, &retry, Some("Stale text."));
+    assert!(s.snapshot().unwrap().cards.is_empty());
+}
+#[test]
+fn continuation_discards_obsolete_stream_progress_without_concurrent_jobs() {
+    let (s, epoch) = service();
+    let id = s
+        .enqueue(epoch, None, request("Tell me about the project."))
+        .unwrap();
+    let old = s.next(epoch).unwrap();
+    s.progress(epoch, &old, Some("I would clarify the goal."));
+    s.enqueue(
+        epoch,
+        Some(id),
+        request("Tell me about the project and challenges."),
+    );
+    s.progress(epoch, &old, Some("Obsolete draft."));
+    assert!(s.snapshot().unwrap().cards[0].answer.is_none());
+    assert!(s.next(epoch).is_none());
+    s.finish(epoch, old, Ok(reply()));
+    let next = s.next(epoch).unwrap();
+    assert_eq!(next.id, id);
+    assert!(next.input.question.contains("challenges"));
+}
+
+#[test]
+fn stream_updates_are_published_without_ui_polling() {
+    let (s, epoch) = service();
+    let updates = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+    let sink = updates.clone();
+    s.set_publisher(std::sync::Arc::new(move |snapshot| {
+        sink.lock().unwrap().push(snapshot)
+    }));
+    s.enqueue(epoch, None, request("How would you test the plan?"));
+    let job = s.next(epoch).unwrap();
+    s.progress(epoch, &job, Some("I would clarify the goal."));
+    let view = updates.lock().unwrap().last().unwrap().clone();
+    assert_eq!(view.cards[0].status, "responding");
+    assert_eq!(view.cards[0].attempt, 1);
+    assert!(view.cards[0].first_output_at_unix_ms.is_some());
+    assert!(view.cards[0].ready_at_unix_ms.is_none());
+    s.finish(epoch, job, Ok(reply()));
+    assert_eq!(
+        updates.lock().unwrap().last().unwrap().cards[0].status,
+        "ready"
+    );
+}
+
+#[test]
+fn obvious_local_requests_bypass_semantic_provider_even_when_short_or_reassembled() {
+    tauri::async_runtime::block_on(async {
+        for (text, revision) in [
+            ("Tell me about yourself.", 1),
+            ("Describe your Salesforce experience.", 1),
+            ("Who are you?", 1),
+            ("How did you handle the Salesforce migration?", 2),
+        ] {
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            let local = crate::understanding::candidate::local_question(text, &[]);
+            assert!(local.is_some(), "expected confident local detection");
+            router
+                .process(
+                    candidate(1, text, local.as_deref(), revision),
+                    &s,
+                    epoch,
+                    |_| async {
+                        panic!("obvious request must not call Gemini Intent");
+                        #[allow(unreachable_code)]
+                        Err("unexpected call")
+                    },
+                )
+                .await;
+            let job = s.next(epoch).expect("immediately queued locally");
+            assert_eq!(job.timing.intent_route, "local");
+            assert!(!job.timing.intent_used);
+            assert_eq!(job.timing.intent_request_ms, 0.0);
+        }
+    });
+}
+
+#[test]
+fn ambiguous_and_contextual_requests_still_use_semantic_provider() {
+    tauri::async_runtime::block_on(async {
+        for (text, local) in [
+            ("Please discuss migration risks in this situation.", None),
+            ("What was the result?", Some("What was the result?")),
+            ("Why?", Some("Why?")),
+            ("Can you explain that?", Some("Can you explain that?")),
+        ] {
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            router
+                .process(candidate(1, text, local, 1), &s, epoch, action)
+                .await;
+            let job = s.next(epoch).expect("semantic request queued");
+            assert_eq!(job.timing.intent_route, "gemini");
+            assert!(job.timing.intent_used);
+        }
+    });
 }

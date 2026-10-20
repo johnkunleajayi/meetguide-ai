@@ -27,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title=configuration.app_name, lifespan=lifespan)
     application.state.cue_pending = {}
     application.state.intent_pending = {}
+    application.state.preparation_signing_key = state_signing_key(configuration)
     application.state.settings = configuration
     application.state.oauth = create_oauth(configuration)
     application.add_middleware(
@@ -42,8 +43,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=configuration.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type", "X-Document-Name"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "X-Document-Name", "X-Context-Type"],
     )
     application.include_router(api_router)
     return application

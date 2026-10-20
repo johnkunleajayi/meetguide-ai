@@ -224,6 +224,7 @@ mod tests {
         store.lock().unwrap().reset(&sources);
         let session = Session::new(
             RelayConfig {
+                preparation_token: None,
                 url: format!("ws://{address}/api/transcription/stream"),
                 token: zeroize::Zeroizing::new("test-only-native-token".into()),
             },
@@ -335,6 +336,7 @@ mod reconnect_tests {
         store.lock().unwrap().reset(&[Source::System]);
         let session = Session::new(
             RelayConfig {
+                preparation_token: None,
                 url: format!("ws://{address}/stream"),
                 token: zeroize::Zeroizing::new("test-only".into()),
             },

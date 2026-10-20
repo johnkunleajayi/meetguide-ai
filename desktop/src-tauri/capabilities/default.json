@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local main window authentication and local audio control only; no general shell or credential-store access",
-  "windows": ["main"],
-  "permissions": ["allow-desktop-auth", "allow-local-audio"]
+  "description": "Local main window authentication, session preparation and local audio control only; no general shell or credential-store access",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-desktop-auth",
+    "allow-local-audio",
+    "allow-session-preparation",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
 }

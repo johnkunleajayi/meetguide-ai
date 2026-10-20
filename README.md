@@ -43,7 +43,7 @@ The web source and existing visual design are preserved. The public product demo
 ### Web routes and responsibilities
 
 - `/`: public marketing website, accessible signed in or signed out; no private Context Library is mounted or fetched here.
-- `/app`: authenticated preparation workspace with account controls and the existing Context Library upload/list/delete workflow. Signed-out visitors see a sign-in gate using the existing backend Google flow.
+- `/app`: authenticated preparation workspace with purpose/objective, reusable document upload/selection, and account controls. Signed-out visitors see a sign-in gate using the existing backend Google flow.
 - Live transcription and Personalized Live Cue run in MeetGuide Desktop, not in the web workspace.
 
 Public Sign in/Get started and the workspace sign-in gate record only a fixed `/app` navigation intent in session storage. After the existing Google callback returns to `/`, the successful session check opens `/app`. No credentials or tokens are stored in browser storage. If session storage is unavailable, use Open Workspace after sign-in. Signed-in users can still browse `/`; signing out from the workspace returns there only after backend logout succeeds.
@@ -120,4 +120,4 @@ The API includes health, configuration, PostgreSQL wiring, User/Session models, 
 
 Both applications use the MeetGuide navy/white/slate/blue identity, keyboard focus styles, readable sans-serif typography, and light/dark mode. Dependencies, builds, Rust targets, generated Tauri schemas, local configuration, caches, logs, IDE files, and toolchains are ignored at the repository root.
 
-Context Library: the authenticated web application supports private résumé upload, local extraction and lexical retrieval. See backend/README.md for migration 0003_context_library, private storage configuration and manual verification. No Live Cue generation is connected yet.
+Session preparation: `/app` saves a purpose, objective and optional explicitly selected context documents. Existing PDF/DOCX/TXT documents remain reusable; documents are not automatically used across meetings. Desktop reviews/freezes a preparation before Start, and Live Cue BM25 retrieval is restricted to that frozen selection. See backend/README.md for migration `0004_session_preparations`, privacy details and the combined later manual test plan. Live transcripts and cue cards remain session-only.

@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 
 #[derive(Clone)]
 pub struct RelayConfig {
+    pub preparation_token: Option<Zeroizing<String>>,
     pub url: String,
     pub token: Zeroizing<String>,
 }
@@ -118,6 +119,9 @@ pub async fn run(
                             }
                             Some("transcript") if ready => {
                                 if let (Some(segment), Some(text), Some(final_text)) = (value["segment"].as_u64(), value["text"].as_str(), value["final"].as_bool()) {
+                                    if final_text {
+                                        crate::timing::emit(serde_json::json!({"stage":"native_final_received", "stream_id":value["stream_id"].as_str().filter(|s| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit())), "source":source.wire(),"epoch":epoch,"segment":segment,"at_unix_ms":crate::timing::unix_ms()}));
+                                    }
                                     if let Ok(mut store) = store.lock() { store.event(source, epoch, segment, base_ms.saturating_add(segment), text, final_text); }
                                 }
                             }

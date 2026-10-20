@@ -1,7 +1,9 @@
 """Authenticated, bounded native PCM relay. No database transcript/audio persistence."""
 
 import asyncio
+import time
 from contextlib import suppress
+from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from websockets.exceptions import ConnectionClosed
 
 from app.core import auth
+from app.core.timing import emit
 from app.db.auth_repository import AuthRepository
 from app.transcription.provider import ProviderError, get_provider
 
@@ -30,8 +33,12 @@ async def error(socket, message, retryable=False):
 
 async def relay(socket, provider, source):
     finished = asyncio.Event()
+    stream_id = uuid4().hex
+    last_packet_at = None
+    packet_count = 0
 
     async def upload():
+        nonlocal last_packet_at, packet_count
         while True:
             message = await socket.receive()
             if message["type"] == "websocket.disconnect":
@@ -40,6 +47,8 @@ async def relay(socket, provider, source):
             if pcm is not None:
                 if not pcm or len(pcm) > 6400 or len(pcm) % 2:
                     raise ProviderError("Invalid audio packet. Restart the desktop session.", False)
+                last_packet_at = time.perf_counter()
+                packet_count += 1
                 await asyncio.wait_for(provider.send_audio(pcm), timeout=3)
             elif message.get("text") == '{"type":"finish"}':
                 await provider.finish()
@@ -52,10 +61,33 @@ async def relay(socket, provider, source):
         while True:
             event = await provider.receive()
             if event is not None:
+                emitted_at = time.perf_counter()
+                if event.final and socket.app.state.settings.app_env != "production":
+                    emit(
+                        {
+                            "stage": "transcription_final_emitted",
+                            "stream_id": stream_id,
+                            "source": source,
+                            "segment": event.segment,
+                            "at_unix_ms": round(time.time() * 1000),
+                            "provider_final_to_normalized_emit_ms": round(
+                                (emitted_at - event.provider_received_at) * 1000, 3
+                            )
+                            if event.provider_received_at is not None
+                            else None,
+                            "last_packet_to_final_ms": round(
+                                (emitted_at - last_packet_at) * 1000, 3
+                            )
+                            if last_packet_at
+                            else None,
+                            "packet_count": packet_count,
+                        }
+                    )
                 await socket.send_json(
                     {
                         "type": "transcript",
                         "source": source,
+                        "stream_id": stream_id,
                         "segment": event.segment,
                         "text": event.text,
                         "final": event.final,

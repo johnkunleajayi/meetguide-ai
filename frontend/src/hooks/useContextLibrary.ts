@@ -35,12 +35,13 @@ export function useContextLibrary() {
     }
   }
 
-  function upload(file: File) {
+  function upload(file: File, contextType = "other", onUploaded?: (doc: ContextDocument) => void) {
     return run("upload", async signal => {
-      const document = await uploadDocument(file, signal);
+      const document = await uploadDocument(file, signal, contextType);
       if (!signal.aborted) {
         setDocuments(items => [document, ...items]);
-        setNotice("Résumé added to your Context Library.");
+        setNotice("Document added to your reusable context.");
+        onUploaded?.(document);
       }
     });
   }

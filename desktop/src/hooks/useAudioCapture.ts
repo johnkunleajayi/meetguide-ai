@@ -43,13 +43,13 @@ export function useAudioCapture(authenticated: boolean) {
     if (!authenticated && status.state === "listening") void stop();
   }, [authenticated, status.state]);
 
-  async function start(options: CaptureOptions) {
+  async function start(options: CaptureOptions, preparationId: string, preparationRevision: string) {
     if (!enabled.current || busy.current) return;
     busy.current = true;
     setPending("starting");
     setError(null);
     try {
-      const value = await startAudio(options);
+      const value = await startAudio(options, preparationId, preparationRevision);
       setStatus(value);
       if (!enabled.current) {
         try {

@@ -28,6 +28,9 @@ struct Progress {
     force_new: bool,
 }
 struct Pending {
+    final_at: std::time::Instant,
+    segment: u64,
+    epoch: u64,
     turn_id: u64,
     revision: u64,
 }
@@ -181,6 +184,9 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             let turn = self.snapshot.turns.back().expect("accepted final turn");
             self.pending.retain(|pending| pending.turn_id != turn.id);
             self.pending.push_back(Pending {
+                final_at: std::time::Instant::now(),
+                segment,
+                epoch,
                 turn_id: turn.id,
                 revision: turn.revision,
             });
@@ -244,10 +250,25 @@ impl<P: UnderstandingProvider> UnderstandingEngine<P> {
             .cloned()
             .collect();
         let context = recent_context(&earlier);
+        let detection_started = std::time::Instant::now();
         let detection = self.provider.analyze(turn, &context);
+        let local_detection_ms = detection_started.elapsed().as_secs_f64() * 1000.0;
         if self.offered != Some((turn.id, turn.revision)) && candidate::meaningful(turn) {
             self.offered = Some((turn.id, turn.revision));
+            let timing = crate::timing::CandidateTiming {
+                assembly_wait_ms: detection_started
+                    .saturating_duration_since(pending.final_at)
+                    .as_secs_f64()
+                    * 1000.0,
+                local_detection_ms,
+                final_at: pending.final_at,
+                ..Default::default()
+            };
+            crate::timing::emit(
+                serde_json::json!({"stage":"assembly_candidate", "question_id":timing.question_id, "turn_id":turn.id, "revision":turn.revision, "epoch":pending.epoch,"segment":pending.segment,"assembly_wait_ms":timing.assembly_wait_ms,"local_detection_ms":local_detection_ms,"configured_debounce_ms":SETTLE_MS,"at_unix_ms":crate::timing::unix_ms()}),
+            );
             self.outbox.push_back(candidate::Candidate {
+                timing,
                 turn_id: turn.id,
                 revision: turn.revision,
                 text: turn.text.clone(),

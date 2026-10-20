@@ -44,6 +44,65 @@ impl Api {
         Ok(Self { base, client })
     }
 
+    pub fn preparations(
+        &self,
+        token: &str,
+    ) -> Result<Vec<crate::preparation::Preparation>, &'static str> {
+        let response = self
+            .client
+            .get(self.endpoint("/api/preparations"))
+            .bearer_auth(token)
+            .send()
+            .map_err(|_| "Unable to reach preparations.")?;
+        if !response.status().is_success() {
+            return Err("Unable to load preparations. Sign in and check backend migrations.");
+        }
+        response.json().map_err(|_| "Invalid preparation response.")
+    }
+    fn preparation_path(&self, id: &str, action: &str) -> Result<Url, &'static str> {
+        if id.len() != 36 || !id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
+            return Err("Invalid preparation selection.");
+        }
+        Ok(self.endpoint(&format!("/api/preparations/{id}/{action}")))
+    }
+    pub fn activate_preparation(&self, token: &str, id: &str) -> Result<(), &'static str> {
+        let response = self
+            .client
+            .post(self.preparation_path(id, "activate")?)
+            .bearer_auth(token)
+            .send()
+            .map_err(|_| "Unable to select preparation.")?;
+        if !response.status().is_success() {
+            return Err("Preparation was not available. Refresh and retry.");
+        }
+        Ok(())
+    }
+    pub fn freeze_preparation(
+        &self,
+        token: &str,
+        id: &str,
+        revision: &str,
+    ) -> Result<zeroize::Zeroizing<String>, &'static str> {
+        let response = self
+            .client
+            .post(self.preparation_path(id, "freeze")?)
+            .bearer_auth(token)
+            .json(&serde_json::json!({"expected_updated_at":revision}))
+            .send()
+            .map_err(|_| "Unable to prepare the live session.")?;
+        if !response.status().is_success() {
+            return Err(
+                "Preparation changed or is unavailable. Refresh preparation before starting.",
+            );
+        }
+        let frozen: crate::preparation::Frozen = response
+            .json()
+            .map_err(|_| "Invalid prepared session response.")?;
+        if frozen.preparation_token.len() > 12000 || frozen.preparation_token.is_empty() {
+            return Err("Invalid prepared session response.");
+        }
+        Ok(zeroize::Zeroizing::new(frozen.preparation_token))
+    }
     pub fn intent_url(&self) -> String {
         self.endpoint("/api/intent/classify").to_string()
     }

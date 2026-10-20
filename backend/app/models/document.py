@@ -23,6 +23,7 @@ class Document(Base):
     __tablename__ = "context_documents"
     __table_args__ = (
         CheckConstraint("status IN ('ready', 'deleting')", name="ck_document_status"),
+        UniqueConstraint("id", "user_id", name="uq_document_owner"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)

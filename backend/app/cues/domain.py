@@ -1,7 +1,9 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+
+from app.preparations.domain import PreparedContext
 
 
 class Turn(BaseModel):
@@ -12,6 +14,8 @@ class Turn(BaseModel):
 
 class CueInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
+    preparation_token: str | None = Field(default=None, max_length=12000, repr=False)
+    _preparation: PreparedContext | None = PrivateAttr(default=None)
     type: Literal["question"]
     speaker: Literal["them"]
     finalized: Literal[True]
@@ -29,6 +33,7 @@ class CueInput(BaseModel):
 
 
 class Evidence(BaseModel):
+    context_role: str = "other"
     id: str
     document_id: UUID
     chunk_id: UUID

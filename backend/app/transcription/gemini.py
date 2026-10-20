@@ -113,7 +113,9 @@ class GeminiConnection:
                 self.segment = max(
                     self.last_segment + 1, int((time.monotonic() - self.began) * 1000)
                 )
-            self.events.append(TranscriptEvent(self.segment, text[:4096], final))
+            self.events.append(
+                TranscriptEvent(self.segment, text[:4096], final, time.perf_counter())
+            )
             if final:
                 self.last_segment = self.segment
                 self.segment = None

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TranscriptPanel } from "../src/components/TranscriptPanel";
-import { clearCue, readCue } from "../src/lib/cue";
+import { clearCue, readCue, subscribeCue } from "../src/lib/cue";
 import { readTranscript, type TranscriptSnapshot } from "../src/lib/transcription";
-vi.mock("../src/lib/cue", () => ({ clearCue: vi.fn(), prepareCue: vi.fn(), readCue: vi.fn(async () => ({ sessionId: 1, cards: [], notice: null })) }));
+vi.mock("../src/lib/cue", () => ({ clearCue: vi.fn(), prepareCue: vi.fn(), subscribeCue: vi.fn(), readCue: vi.fn(async () => ({ sessionId: 1, cards: [], notice: null })) }));
 vi.mock("../src/lib/transcription", async (original) => ({ ...await original<typeof import("../src/lib/transcription")>(), readTranscript: vi.fn() }));
 const partial: TranscriptSnapshot = { version: 1, sessionId: 1, entries: [{ id: 1, source: "system", text: "Interim words", finalText: false, interrupted: false, offsetMs: 0 }], streams: [{ source: "system", state: "streaming", message: null, droppedChunks: 0 }], trimmed: 0, understanding: { active: true, turns: [], events: [], trimmedTurns: 0 } };
-beforeEach(() => { vi.resetAllMocks(); vi.mocked(readTranscript).mockResolvedValue(null); });
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(subscribeCue).mockResolvedValue(() => {}); vi.mocked(readCue).mockResolvedValue({sessionId:1,cards:[],notice:null}); vi.mocked(readTranscript).mockResolvedValue(null); });
 afterEach(cleanup);
 it("does not poll or expose transcript content when signed out", () => {
   render(<TranscriptPanel authenticated={false} />);
