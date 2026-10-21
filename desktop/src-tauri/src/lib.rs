@@ -1,4 +1,5 @@
 mod audio;
+mod coding;
 mod cue;
 mod preparation;
 mod private_display;

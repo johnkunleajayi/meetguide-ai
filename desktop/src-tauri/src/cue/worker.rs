@@ -64,7 +64,18 @@ impl Router {
         } else {
             0
         };
-        let key = format!("{}:{anchor}", fingerprint(&c.text));
+        // An identical follow-up about a different coding problem is not a replay.
+        let code_anchor = if crate::coding::classify(&c.text, service.has_coding_context(epoch))
+            == Some(crate::coding::Request::FollowUp)
+        {
+            service
+                .coding_problem(epoch)
+                .map(|p| fingerprint(&p))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let key = format!("{}:{anchor}:{code_anchor}", fingerprint(&c.text));
         if let Some((_, _, card)) = self.seen.iter().find(|(seen, _, _)| *seen == key) {
             let card = *card;
             self.remember_turn(c.turn_id, c.text, card, None);
@@ -79,7 +90,12 @@ impl Router {
             .to_owned();
         let previous_card = previous.and_then(|p| p.card);
         let previous_request = previous.and_then(|p| p.question.clone());
-        let local_delta = local_question(&delta, &c.context);
+        let coding = crate::coding::classify(&delta, service.has_coding_context(epoch));
+        let local_delta = if coding.is_some() {
+            Some(delta.clone())
+        } else {
+            local_question(&delta, &c.context)
+        };
         let linked = delta.split_whitespace().next().is_some_and(|word| {
             matches!(
                 word.to_lowercase().as_str(),
@@ -88,10 +104,11 @@ impl Router {
         });
         // A standalone new question is never allowed to overwrite the preceding
         // logical request merely because assembly kept both in one spoken turn.
-        let continuation = previous_card.is_some()
+        let continuation = coding != Some(crate::coding::Request::FollowUp)
+            && previous_card.is_some()
             && previous_request.is_some()
             && (linked || local_delta.is_none());
-        let local = if previous_card.is_some() && local_delta.is_some() {
+        let local = if coding.is_some() || (previous_card.is_some() && local_delta.is_some()) {
             local_delta.clone()
         } else {
             c.local.clone()
@@ -103,7 +120,8 @@ impl Router {
         // Length and ASR revision do not make a confident request ambiguous.
         // Keep semantic help for continuations and context-dependent follow-ups.
         let independent = local_question(&delta, &[]).is_some();
-        let semantic = local.is_none() || continuation || linked || references || !independent;
+        let semantic = coding.is_none()
+            && (local.is_none() || continuation || linked || references || !independent);
         let fallback = || {
             local.clone().map(|question| IntentResult {
                 kind: if continuation && linked {
@@ -219,7 +237,7 @@ impl Router {
             .chain(std::iter::once(fingerprint(&c.text)))
         {
             self.seen
-                .push_back((format!("{alias}:{anchor}"), now, card));
+                .push_back((format!("{alias}:{anchor}:{code_anchor}"), now, card));
         }
         while self.seen.len() > 128 {
             self.seen.pop_front();
@@ -279,7 +297,7 @@ pub fn start(store: Arc<Mutex<crate::transcription::TranscriptStore>>, service: 
         while answers.active(epoch) {
             let gate = tokio::select! { biased; _ = cancelled.changed() => return, gate = answers.gate.lock() => gate };
             if let Some(job) = answers.next(epoch) {
-                let result = tokio::select! { biased; _ = cancelled.changed() => return, result = super::transport::generate(job.input.clone(), &job.timing.candidate.question_id, job.preparation_token.as_deref().map(|s| s.as_str()), job.timing.attempt, |text| answers.progress(epoch, &job, text)) => result };
+                let result = tokio::select! { biased; _ = cancelled.changed() => return, result = super::transport::generate(job.input.clone(), &job.timing.candidate.question_id, job.preparation_token.as_deref().map(|s| s.as_str()), job.timing.attempt, |text, code| answers.progress_code(epoch, &job, text, code)) => result };
                 answers.finish(epoch, job, result);
             }
             drop(gate);

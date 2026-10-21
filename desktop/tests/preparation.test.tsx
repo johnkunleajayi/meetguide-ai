@@ -35,3 +35,11 @@ it("loads the reviewed interview preparation and refreshes without losing its re
  await screen.findByText(interview.objective); expect(api.readPreparations).toHaveBeenCalledTimes(2);
  await expect(vi.mocked(api.readPreparations).mock.results[1].value).resolves.toEqual([interview]);
 });
+
+it("shows frozen technical interview language preferences in the compact review", async () => {
+ vi.mocked(api.readPreparations).mockResolvedValue([{...first,purpose:"job_interview",technical_interview:true,coding_language:"csharp"}]);
+ render(<Harness locked />);
+ await screen.findByText(/Technical\/Coding interview/);
+ expect(screen.getByText(/Technical\/Coding interview/).textContent).toContain("C#");
+ expect(screen.getByText("Fixed for this session")).toBeTruthy();
+});

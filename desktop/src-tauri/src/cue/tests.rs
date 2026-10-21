@@ -2,6 +2,8 @@ use super::*;
 use crate::understanding::{candidate::Candidate, domain::ConversationTurn, UnderstandingEngine};
 fn request(question: &str) -> CueInput {
     CueInput {
+        cue_kind: "conversation",
+        coding_context: None,
         event_type: "question",
         speaker: "them",
         finalized: true,
@@ -13,6 +15,7 @@ fn request(question: &str) -> CueInput {
 fn reply() -> transport::CueReply {
     transport::CueReply {
         timing: Default::default(),
+        code_assist: None,
         answer: "I tested the integration.\n\nI checked the result.".into(),
         grounding: "general_approach".into(),
         sources: vec![],
@@ -919,5 +922,131 @@ fn ambiguous_and_contextual_requests_still_use_semantic_provider() {
             assert_eq!(job.timing.intent_route, "gemini");
             assert!(job.timing.intent_used);
         }
+    });
+}
+
+fn code_reply() -> transport::CueReply {
+    transport::CueReply {
+        code_assist: Some(transport::CodeAssist {
+            language: "Python".into(),
+            approach: "Track seen values.".into(),
+            code: "def duplicates(values):\n    return []\n".into(),
+            complexity: None,
+            what_to_say: "I track seen values.".into(),
+        }),
+        ..reply()
+    }
+}
+
+#[test]
+fn coding_followups_queue_fifo_use_validated_solution_and_survive_remove() {
+    let (s, epoch) = service();
+    let first = s
+        .enqueue(
+            epoch,
+            None,
+            request("Write a function that finds duplicates in an array."),
+        )
+        .unwrap();
+    let q1 = s.next(epoch).unwrap();
+    assert_eq!(q1.input.cue_kind, "code");
+    let second = s
+        .enqueue(epoch, None, request("Can you optimize that solution?"))
+        .unwrap();
+    let third = s
+        .enqueue(epoch, None, request("Can you do it without extra space?"))
+        .unwrap();
+    assert!(s.next(epoch).is_none());
+    let code = code_reply().code_assist.unwrap();
+    s.progress_code(epoch, &q1, Some("Track seen values."), Some(&code));
+    s.remove(1, first).unwrap();
+    assert!(s.next(epoch).is_none());
+    s.finish(epoch, q1, Ok(code_reply()));
+    let q2 = s.next(epoch).unwrap();
+    assert_eq!(q2.id, second);
+    let context = q2.input.coding_context.as_ref().unwrap();
+    assert!(context.problem.contains("duplicates"));
+    assert_eq!(context.language, "Python");
+    assert!(context.code.contains("def duplicates"));
+    s.finish(epoch, q2, Ok(code_reply()));
+    let q3 = s.next(epoch).unwrap();
+    assert_eq!(q3.id, third);
+    assert!(q3.input.coding_context.is_some());
+    s.finish(epoch, q3, Ok(code_reply()));
+    assert_eq!(s.snapshot().unwrap().cards.len(), 2);
+    s.enqueue(epoch, None, request("Tell me about yourself."));
+    assert!(!s.has_coding_context(epoch));
+    s.reset(None);
+    assert!(!s.has_coding_context(s.lifecycle().0));
+    assert!(s.snapshot().unwrap().cards.is_empty());
+}
+
+#[test]
+fn code_partial_failure_retry_preserves_identity_and_clears_draft() {
+    let (s, epoch) = service();
+    s.enqueue(
+        epoch,
+        None,
+        request("Write an Apex trigger to prevent duplicate Contacts."),
+    );
+    let job = s.next(epoch).unwrap();
+    let id = job.id;
+    let question_id = job.timing.candidate.question_id.clone();
+    let code = code_reply().code_assist.unwrap();
+    s.progress_code(epoch, &job, Some("Draft approach."), Some(&code));
+    assert_eq!(s.snapshot().unwrap().cards[0].status, "responding");
+    s.finish(epoch, job, Err("Provider unavailable"));
+    assert!(s.snapshot().unwrap().cards[0].code_assist.is_none());
+    s.retry(1, id).unwrap();
+    let retried = s.next(epoch).unwrap();
+    assert_eq!(retried.timing.candidate.question_id, question_id);
+    assert_eq!(retried.timing.attempt, 2);
+    assert!(s.snapshot().unwrap().cards[0].code_assist.is_none());
+    s.finish(epoch, retried, Ok(code_reply()));
+    assert!(s.snapshot().unwrap().cards[0].code_assist.is_some());
+}
+
+#[test]
+fn obvious_coding_requests_and_followups_bypass_gemini_intent() {
+    tauri::async_runtime::block_on(async {
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        for (id, text) in [
+            (1, "Write a function that finds duplicates in an array."),
+            (2, "Can you optimize that solution?"),
+            (3, "Can you do it without extra space?"),
+        ] {
+            router
+                .process(candidate(id, text, None, 1), &s, epoch, |_| async {
+                    panic!("Obvious code requests must be local");
+                    #[allow(unreachable_code)]
+                    Err("unexpected")
+                })
+                .await;
+        }
+        assert_eq!(s.snapshot().unwrap().cards.len(), 3);
+        let first = s.next(epoch).unwrap();
+        assert_eq!(first.timing.intent_route, "local");
+        assert!(!first.timing.intent_used);
+    });
+}
+
+#[test]
+fn repeated_coding_followup_is_deduplicated_per_problem_not_across_problems() {
+    tauri::async_runtime::block_on(async {
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        for (id, text) in [
+            (1, "Write a function to find duplicates in an array."),
+            (2, "Can you optimize that solution?"),
+            (3, "Can you optimize that solution?"),
+            (4, "How would you reverse a linked list?"),
+            (5, "Can you optimize that solution?"),
+        ] {
+            router
+                .process(candidate(id, text, None, 1), &s, epoch, unavailable)
+                .await;
+        }
+        assert_eq!(s.snapshot().unwrap().cards.len(), 4);
     });
 }

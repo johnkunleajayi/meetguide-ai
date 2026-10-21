@@ -1,3 +1,4 @@
+import { CodeAssist } from "./CodeAssist";
 import { useEffect, useRef, useState } from "react";
 import { clearCue, prepareCue, readCue, subscribeCue, type CueSnapshot } from "../lib/cue";
 
@@ -40,9 +41,9 @@ export function LiveCue({ sessionId, active }: { sessionId: number; active: bool
   const current = view?.sessionId === sessionId && active ? view : null;
   useEffect(() => {
     const ready = new Set(current?.cards.filter(card => card.status === "ready").map(card => card.id));
-    const grew = current?.cards.some(card => card.status === "responding" && (card.answer?.length || 0) > (previousProgress.current.get(card.id) || 0));
+    const grew = current?.cards.some(card => card.status === "responding" && ((card.answer?.length || 0) + (card.codeAssist?.code.length || 0)) > (previousProgress.current.get(card.id) || 0));
     const arrived = grew || [...ready].some(id => !previousReady.current.has(id));
-    previousProgress.current = new Map(current?.cards.map(card => [card.id, card.answer?.length || 0]));
+    previousProgress.current = new Map(current?.cards.map(card => [card.id, (card.answer?.length || 0) + (card.codeAssist?.code.length || 0)]));
     if (import.meta.env.DEV) {
       current?.cards.filter(card => card.answer && card.firstOutputAtUnixMs && !firstOutput.current.has(`${card.id}:${card.attempt}:${card.firstOutputAtUnixMs}`)).forEach(card => {
         firstOutput.current.add(`${card.id}:${card.attempt}:${card.firstOutputAtUnixMs}`);
@@ -85,14 +86,14 @@ export function LiveCue({ sessionId, active }: { sessionId: number; active: bool
       if (element) { following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48; if (following.current) setUnread(false); }
     }}>
       {!current?.cards.length && <p className="transcript-footnote">Listening for the next question.</p>}
-      {current?.cards.map(card => <article className="live-cue" key={card.id} aria-label={`Cue ${card.id}`}>
-        <div className="live-cue-heading"><h3>Question</h3><div className="live-cue-actions">
-          <span>{card.status === "ready" ? "Ready to speak" : card.status === "queued" ? "Queued" : card.status === "failed" ? "Answer unavailable" : card.status === "responding" ? "Responding" : "Preparing answer…"}</span>
+      {current?.cards.map(card => <article className={`live-cue${card.cueKind === "code" ? " code-assist-card" : ""}`} key={card.id} aria-label={`Cue ${card.id}`}>
+        <div className="live-cue-heading"><h3>{card.cueKind === "code" ? "Code Assist" : "Question"}</h3><div className="live-cue-actions">
+          <span>{card.status === "ready" ? (card.cueKind === "code" ? "Ready" : "Ready to speak") : card.status === "queued" ? "Queued" : card.status === "failed" ? "Answer unavailable" : card.status === "responding" ? "Responding" : "Preparing answer…"}</span>
           {card.answer && <button className="audio-refresh" aria-label={`Remove cue ${card.id}`} disabled={removing === card.id} onClick={() => void remove(card.id)}>Remove</button>}
         </div></div>
         <p className="live-cue-question">{card.question}</p>
         {card.answer ? <>
-          <div className="live-cue-answer">{card.answer.split(/\n\s*\n/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+          {card.codeAssist ? <CodeAssist value={card.codeAssist} /> : <div className="live-cue-answer">{card.answer.split(/\n\s*\n/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}
           <p className="transcript-footnote">{card.status !== "ready" ? "Draft · final grounding checks pending" : card.grounding === "document_supported" ? `Uses ${card.sourceCount} document excerpt${card.sourceCount === 1 ? "" : "s"}` : "General approach · No personal experience claimed"}</p>
         </> : card.status === "failed" ? <><p role="alert">{card.error}</p><button className="audio-refresh" onClick={() => void retry(card.id)}>Retry answer</button></> : <p className="transcript-footnote">{card.status === "queued" ? "Your question is waiting for the current answer." : "Preparing answer…"}</p>}
         {card.answer && card.status === "failed" && <><p role="alert">{card.error}</p><button className="audio-refresh" onClick={() => void retry(card.id)}>Retry answer</button></>}

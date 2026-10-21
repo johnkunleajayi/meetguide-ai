@@ -265,3 +265,30 @@ Later manual check (use the updated development app, not the unchanged installer
    app run. Close/relaunch and confirm the default returns to ON.
 
 No backend, provider, database, installer or updater changes are involved.
+
+
+## Code Assist
+
+Code Assist uses the existing FIFO Live Cue feed and OpenAI streaming endpoint. Clear local
+programming requests bypass semantic Intent; uncertain normal speech keeps the existing
+Intent route. Code cards show the problem, language, Approach, formatted Code, optional
+Complexity and What to say. They transition Queued / Preparing / Responding (Draft) / Ready
+or the existing retryable error. Code is displayed as escaped React text in a keyboard-
+scrollable `pre/code` block, never HTML, clipboard automation or executable input.
+
+One bounded coding problem and its last validated solution are kept separately from the
+visible feed. Coding follow-ups create new cards; a queued follow-up can use the solution
+that finishes before its FIFO slot. Remove never erases this context or releases an active
+slot. A normal actionable question ends the coding chain; a new session/Stop/logout clears
+all coding memory. Retry keeps the question ID, increments the attempt and clears partial
+code. Preparation scope, source separation and latency diagnostics stay intact.
+
+Web Job Interview preparation may optionally indicate Technical/Coding interview and a
+preferred language. Desktop review shows it; the existing signed preparation freeze carries
+it to the backend. Explicit spoken language takes priority. Auto and all supported language
+preferences are documented in the backend README. Existing preparations remain valid.
+Backend migration `0005_code_assist_preference` is pending and must be reviewed/applied
+manually before live use of the updated preparation API. No provider configuration change,
+Private Display change or installer rebuild was performed. Use the development app for the
+combined later manual test in the backend README. Automated tests mock providers; generated
+code correctness and real-world recognition still require manual review.

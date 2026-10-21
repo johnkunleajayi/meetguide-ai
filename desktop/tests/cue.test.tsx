@@ -139,3 +139,34 @@ it("logs first visible draft timing per attempt without answer text and unsubscr
   view.unmount();expect(unlisten).toHaveBeenCalledOnce();
  } finally {info.mockRestore();}
 });
+
+const codeValue = { language: "Python", approach: "Track seen values.", code: "def duplicates(values):\n    seen = set()\n    return seen\n", complexity: "O(n) time and O(n) space.", what_to_say: "I track values in a set." };
+it("renders Code Assist sections with exact code formatting and normal cards unchanged", async () => {
+  vi.mocked(readCue).mockResolvedValue(snapshot([{ ...card(1), cueKind: "code", codeAssist: codeValue, answer: codeValue.what_to_say }, card(2)]));
+  const { container } = render(<LiveCue sessionId={1} active />);
+  await screen.findByText("Code Assist");
+  expect(container.querySelector("pre code")?.textContent).toBe(codeValue.code);
+  for (const label of ["Approach", "Code", "Complexity", "What to say", "Question", "Ready to speak"]) expect(screen.getByText(label)).toBeTruthy();
+  expect(container.querySelector("script")).toBeNull();
+});
+it("updates one code draft through Responding to Ready with optional complexity", async () => {
+  vi.mocked(readCue).mockResolvedValue(snapshot([{ ...card(1), cueKind: "code", codeAssist: { ...codeValue, complexity: null }, status: "responding" }]));
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText("Draft · final grounding checks pending");
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.queryByText("Complexity")).toBeNull();
+  pushCue(snapshot([{ ...card(1), cueKind: "code", codeAssist: { ...codeValue, complexity: null } }]));
+  await screen.findByText("Ready");
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+});
+it("removes only the selected Code Assist card and retries a failed code request", async () => {
+  vi.mocked(readCue).mockResolvedValue(snapshot([{ ...card(1), cueKind: "code", codeAssist: codeValue }, { ...card(2), cueKind: "code", status: "failed", answer: null, error: "Unavailable" }]));
+  render(<LiveCue sessionId={1} active />);
+  await screen.findAllByText("Code Assist");
+  await screen.findByRole("button", { name: "Remove cue 1" });
+  fireEvent.click(screen.getByRole("button", { name: "Remove cue 1" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Remove cue 1" })).toBeNull());
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Retry answer" }));
+  await waitFor(() => expect(prepareCue).toHaveBeenCalledWith(1, 2, true));
+});

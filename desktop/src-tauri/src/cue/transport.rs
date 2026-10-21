@@ -7,8 +7,36 @@ pub struct CueTurn {
     pub speaker: &'static str,
     pub text: String,
 }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CodingContext {
+    pub problem: String,
+    pub language: String,
+    pub code: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CodeAssist {
+    pub language: String,
+    pub approach: String,
+    pub code: String,
+    pub complexity: Option<String>,
+    pub what_to_say: String,
+}
+impl CodeAssist {
+    pub fn valid(&self) -> bool {
+        self.language.chars().count() <= 40
+            && self.approach.chars().count() <= 1600
+            && self.code.chars().count() <= 8000
+            && self.what_to_say.chars().count() <= 1800
+            && self
+                .complexity
+                .as_ref()
+                .is_none_or(|v| v.chars().count() <= 1000)
+    }
+}
 #[derive(Clone, Serialize)]
 pub struct CueInput {
+    pub cue_kind: &'static str,
+    pub coding_context: Option<CodingContext>,
     #[serde(rename = "type")]
     pub event_type: &'static str,
     pub speaker: &'static str,
@@ -21,6 +49,8 @@ pub struct CueInput {
 pub struct CueReply {
     #[serde(skip)]
     pub timing: crate::timing::TransportTiming,
+    #[serde(default)]
+    pub code_assist: Option<CodeAssist>,
     pub answer: String,
     pub grounding: String,
     pub sources: Vec<serde_json::Value>,
@@ -31,7 +61,7 @@ pub async fn generate(
     question_id: &str,
     preparation_token: Option<&str>,
     attempt: u64,
-    mut progress: impl FnMut(Option<&str>),
+    mut progress: impl FnMut(Option<&str>, Option<&CodeAssist>),
 ) -> Result<CueReply, &'static str> {
     // Keyring and the existing blocking API client stay off the async runtime.
     let (url, token) = tauri::async_runtime::spawn_blocking(|| {
@@ -60,7 +90,7 @@ async fn send(
     question_id: &str,
     preparation_token: Option<&str>,
     attempt: u64,
-    mut progress: impl FnMut(Option<&str>),
+    mut progress: impl FnMut(Option<&str>, Option<&CodeAssist>),
 ) -> Result<CueReply, &'static str> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(35))
@@ -113,13 +143,20 @@ async fn send(
                 return Err("Invalid Live Cue stream. Please retry.");
             }
             match event.value {
-                super::stream::Value::Partial { answer } => {
-                    if answer.is_empty() || answer.chars().count() > 2400 {
+                super::stream::Value::Partial {
+                    answer,
+                    code_assist,
+                } => {
+                    if (input.cue_kind == "code") != code_assist.is_some()
+                        || answer.is_empty()
+                        || answer.chars().count() > 2400
+                        || code_assist.as_ref().is_some_and(|v| !v.valid())
+                    {
                         return Err("Invalid Live Cue stream. Please retry.");
                     }
-                    progress(Some(&answer));
+                    progress(Some(&answer), code_assist.as_ref());
                 }
-                super::stream::Value::Reset => progress(None),
+                super::stream::Value::Reset => progress(None, None),
                 super::stream::Value::Error => {
                     return Err("Unable to prepare a grounded answer. Please retry.")
                 }
@@ -127,7 +164,14 @@ async fn send(
                     mut result,
                     backend_processing_ms,
                 } => {
-                    if result.answer.is_empty()
+                    if (input.cue_kind == "code") != result.code_assist.is_some()
+                        || result.code_assist.as_ref().is_some_and(|v| {
+                            v.code.trim().is_empty()
+                                || v.language.trim().is_empty()
+                                || v.what_to_say.trim().is_empty()
+                                || !v.valid()
+                        })
+                        || result.answer.is_empty()
                         || result.answer.chars().count() > 2400
                         || !matches!(
                             result.grounding.as_str(),

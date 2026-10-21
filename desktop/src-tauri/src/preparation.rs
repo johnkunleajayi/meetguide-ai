@@ -12,9 +12,16 @@ pub struct Preparation {
     pub id: String,
     pub purpose: String,
     pub objective: String,
+    #[serde(default)]
+    pub technical_interview: bool,
+    #[serde(default = "auto_language")]
+    pub coding_language: String,
     pub documents: Vec<Selection>,
     pub active: bool,
     pub updated_at: String,
+}
+fn auto_language() -> String {
+    "auto".into()
 }
 #[derive(Deserialize)]
 pub struct Frozen {

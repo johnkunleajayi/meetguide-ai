@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { activatePreparation, purposeLabel, readPreparations, type Preparation } from "../lib/preparation";
+import { activatePreparation, purposeLabel, codingLanguageLabel, readPreparations, type Preparation } from "../lib/preparation";
 
 export function PreparationPicker({ authenticated, locked, value, onChange }: { authenticated: boolean; locked: boolean; value: Preparation | null; onChange: (value: Preparation | null) => void }) {
   const [items, setItems] = useState<Preparation[]>([]);
@@ -17,7 +17,7 @@ export function PreparationPicker({ authenticated, locked, value, onChange }: { 
   if (!authenticated) return null;
   return <section className="preparation-panel" aria-label="Session preparation">
     <div className="live-cue-heading"><h3>Prepared for</h3>{locked && <span>Fixed for this session</span>}</div>
-    {value ? <><strong>{purposeLabel(value.purpose)}</strong><p className="preparation-objective">{value.objective}</p><p>{value.documents.length} context document{value.documents.length === 1 ? "" : "s"}{value.documents.length ? "" : " · General assistance"}</p></> : <p>{busy ? "Loading preparation…" : "Create a preparation in your web workspace, then select it here. No résumé is required."}</p>}
+    {value ? <><strong>{purposeLabel(value.purpose)}</strong><p className="preparation-objective">{value.objective}</p><p>{value.documents.length} context document{value.documents.length === 1 ? "" : "s"}{value.documents.length ? "" : " · General assistance"}</p>{value.purpose === "job_interview" && value.technical_interview && <p>Technical/Coding interview · {codingLanguageLabel(value.coding_language || "auto")}</p>}</> : <p>{busy ? "Loading preparation…" : "Create a preparation in your web workspace, then select it here. No résumé is required."}</p>}
     {!locked && <><label className="audio-field">Change preparation<select disabled={busy} value={value?.id || ""} onChange={async event => {
       const next = items.find(p => p.id === event.target.value);
       if (!next) { onChange(null); return; }

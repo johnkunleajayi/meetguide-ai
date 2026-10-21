@@ -1,4 +1,4 @@
-use super::transport::{CueInput, CueReply};
+use super::transport::{CodeAssist, CodingContext, CueInput, CueReply};
 use crate::timing::{emit, unix_ms, QuestionTiming};
 use serde::Serialize;
 use std::sync::Mutex;
@@ -13,6 +13,8 @@ pub struct CueCard {
     pub question_id: String,
     pub ready_at_unix_ms: Option<u128>,
     pub first_output_at_unix_ms: Option<u128>,
+    pub cue_kind: &'static str,
+    pub code_assist: Option<CodeAssist>,
     pub question: String,
     pub status: &'static str,
     pub answer: Option<String>,
@@ -34,6 +36,8 @@ struct Entry {
     version: u64,
 }
 struct State {
+    current_code: Option<CodingContext>,
+    last_code: Option<CodingContext>,
     in_flight: Option<(u64, u64)>,
     preparation_token: Option<zeroize::Zeroizing<String>>,
     began: Instant,
@@ -61,6 +65,8 @@ impl Default for CueService {
         Self {
             publisher: Mutex::new(None),
             state: Mutex::new(State {
+                current_code: None,
+                last_code: None,
                 in_flight: None,
                 preparation_token: None,
                 began: Instant::now(),
@@ -92,7 +98,17 @@ impl CueService {
             }
         }
     }
+    #[cfg(test)]
     pub fn progress(&self, epoch: u64, job: &Job, answer: Option<&str>) {
+        self.progress_code(epoch, job, answer, None);
+    }
+    pub fn progress_code(
+        &self,
+        epoch: u64,
+        job: &Job,
+        answer: Option<&str>,
+        code: Option<&CodeAssist>,
+    ) {
         if let Ok(mut s) = self.state.lock() {
             if s.epoch != epoch || s.active.is_none() {
                 return;
@@ -122,9 +138,11 @@ impl CueService {
                     }
                     e.card.status = "responding";
                     e.card.answer = Some(text.into());
+                    e.card.code_assist = code.cloned();
                 } else {
                     e.card.status = "generating";
                     e.card.answer = None;
+                    e.card.code_assist = None;
                 }
                 self.publish(&s);
             }
@@ -133,6 +151,8 @@ impl CueService {
 
     pub fn reset(&self, active: Option<u64>) {
         if let Ok(mut s) = self.state.lock() {
+            s.current_code = None;
+            s.last_code = None;
             s.in_flight = None;
             s.preparation_token = None;
             s.began = Instant::now();
@@ -177,6 +197,18 @@ impl CueService {
             }
         }
     }
+    pub fn coding_problem(&self, epoch: u64) -> Option<String> {
+        let s = self.state.lock().ok()?;
+        if s.epoch != epoch {
+            return None;
+        }
+        s.current_code.as_ref().map(|c| c.problem.clone())
+    }
+    pub fn has_coding_context(&self, epoch: u64) -> bool {
+        self.state
+            .lock()
+            .is_ok_and(|s| s.epoch == epoch && s.current_code.is_some())
+    }
     pub fn question_id(&self, epoch: u64, id: u64) -> Option<String> {
         let s = self.state.lock().ok()?;
         if s.epoch != epoch {
@@ -195,7 +227,7 @@ impl CueService {
         &self,
         epoch: u64,
         target: Option<u64>,
-        input: CueInput,
+        mut input: CueInput,
         mut timing: QuestionTiming,
     ) -> Option<u64> {
         let mut s = self.state.lock().ok()?;
@@ -205,6 +237,7 @@ impl CueService {
         timing.enqueued_at = Instant::now();
         timing.session_age_seconds = s.began.elapsed().as_secs_f64();
         if let Some(id) = target {
+            let mut amended_code = None;
             // Removed cards stay removed; conversation state belongs elsewhere.
             if let Some(entry) = s.entries.iter_mut().find(|e| e.card.id == id) {
                 if entry.card.question != input.question {
@@ -215,9 +248,21 @@ impl CueService {
                     entry.timing = timing;
                     entry.version += 1;
                     entry.card.question = input.question.clone();
+                    if entry.input.cue_kind == "code" {
+                        input.cue_kind = "code";
+                        input.coding_context = entry.input.coding_context.clone();
+                        if input.coding_context.is_none() {
+                            amended_code = Some(CodingContext {
+                                problem: input.question.clone(),
+                                language: "auto".into(),
+                                code: String::new(),
+                            });
+                        }
+                    }
                     entry.input = input;
                     entry.card.error = None;
                     if entry.card.status == "responding" {
+                        entry.card.code_assist = None;
                         entry.card.answer = None;
                         entry.card.status = "generating";
                     }
@@ -226,8 +271,24 @@ impl CueService {
                     }
                 }
             }
+            if let Some(context) = amended_code {
+                s.current_code = Some(context);
+            }
             self.publish(&s);
             return Some(id);
+        }
+        if let Some(kind) = crate::coding::classify(&input.question, s.current_code.is_some()) {
+            input.cue_kind = "code";
+            if kind == crate::coding::Request::FollowUp {
+                input.coding_context = s.current_code.clone();
+            }
+            s.current_code = Some(input.coding_context.clone().unwrap_or(CodingContext {
+                problem: input.question.clone(),
+                language: "auto".into(),
+                code: String::new(),
+            }));
+        } else {
+            s.current_code = None;
         }
         s.next += 1;
         let id = s.next;
@@ -241,6 +302,8 @@ impl CueService {
                 question_id: timing.candidate.question_id.clone(),
                 ready_at_unix_ms: None,
                 first_output_at_unix_ms: None,
+                cue_kind: input.cue_kind,
+                code_assist: None,
                 question: input.question.clone(),
                 status: "queued",
                 answer: None,
@@ -260,13 +323,22 @@ impl CueService {
             return None;
         }
         let preparation_token = s.preparation_token.clone();
+        let last_code = s.last_code.clone();
         let e = s.entries.iter_mut().find(|e| e.card.status == "queued")?;
+        if e.card.attempt == 0 {
+            if let (Some(context), Some(previous)) = (&mut e.input.coding_context, &last_code) {
+                if context.problem == previous.problem {
+                    *context = previous.clone();
+                }
+            }
+        }
         e.timing.processing_at = Some(Instant::now());
         e.timing.attempt += 1;
         e.card.attempt = e.timing.attempt;
         emit(e.timing.record("queue_processing_started"));
         e.card.status = "generating";
         e.card.answer = None;
+        e.card.code_assist = None;
         e.card.first_output_at_unix_ms = None;
         let job = Job {
             preparation_token,
@@ -287,6 +359,34 @@ impl CueService {
             if s.in_flight == Some((job.id, job.version)) {
                 s.in_flight = None;
             }
+            let valid = s
+                .entries
+                .iter()
+                .find(|e| e.card.id == job.id)
+                .is_none_or(|e| e.version == job.version);
+            if valid {
+                if let Ok(reply) = &result {
+                    if let Some(code) = &reply.code_assist {
+                        let context = CodingContext {
+                            problem: job
+                                .input
+                                .coding_context
+                                .as_ref()
+                                .map(|c| c.problem.clone())
+                                .unwrap_or_else(|| job.input.question.clone()),
+                            language: code.language.clone(),
+                            code: code.code.clone(),
+                        };
+                        if s.current_code
+                            .as_ref()
+                            .is_some_and(|c| c.problem == context.problem)
+                        {
+                            s.current_code = Some(context.clone());
+                        }
+                        s.last_code = Some(context);
+                    }
+                }
+            }
             let Some(e) = s.entries.iter_mut().find(|e| e.card.id == job.id) else {
                 return;
             };
@@ -294,6 +394,7 @@ impl CueService {
                 emit(job.timing.record("cue_superseded"));
                 e.card.status = "queued";
                 e.card.answer = None;
+                e.card.code_assist = None;
                 self.publish(&s);
                 return;
             }
@@ -305,6 +406,7 @@ impl CueService {
                     e.card.ready_at_unix_ms = Some(unix_ms());
                     e.card.status = "ready";
                     e.card.answer = Some(reply.answer);
+                    e.card.code_assist = reply.code_assist;
                     e.card.grounding = Some(reply.grounding);
                     e.card.source_count = reply.sources.len();
                     e.input.context.clear();
@@ -312,6 +414,7 @@ impl CueService {
                 Err(message) => {
                     emit(job.timing.record("cue_failed"));
                     e.card.answer = None;
+                    e.card.code_assist = None;
                     e.card.grounding = None;
                     e.card.status = "failed";
                     e.card.error = Some(message.into());
