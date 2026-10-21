@@ -14,6 +14,8 @@ fn main() {
             "auth_cancel",
             "preparation_list",
             "preparation_activate",
+            "private_display_status",
+            "private_display_set",
             "audio_devices",
             "audio_start",
             "audio_status",

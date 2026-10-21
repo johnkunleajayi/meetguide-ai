@@ -9,6 +9,7 @@
     "allow-desktop-auth",
     "allow-local-audio",
     "allow-session-preparation",
+    "allow-private-display",
     "core:event:allow-listen",
     "core:event:allow-unlisten"
   ]

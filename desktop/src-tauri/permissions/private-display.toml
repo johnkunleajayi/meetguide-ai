@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-private-display"
+description = "Read and change capture exclusion for the local MeetGuide main window only."
+commands.allow = ["private_display_status", "private_display_set"]

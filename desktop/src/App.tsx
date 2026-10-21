@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AudioSession } from "./components/AudioSession";
 import { DesktopAuth } from "./components/DesktopAuth";
+import { PrivateDisplay } from "./components/PrivateDisplay";
 import { useTheme } from "./hooks/useTheme";
 export default function App() {
   const { theme, toggleTheme } = useTheme();
@@ -65,6 +66,7 @@ export default function App() {
         <h1>MeetGuide AI</h1>
         <p className="tagline">Your real-time AI meeting assistant.</p>
         <DesktopAuth onAuthenticatedChange={setAuthenticated} sessionBusy={sessionBusy} />
+        <PrivateDisplay />
         <AudioSession authenticated={authenticated} onBusyChange={setSessionBusy} />
       </main>
       <footer>

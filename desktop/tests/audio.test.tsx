@@ -3,6 +3,9 @@ vi.mock("../src/lib/transcription", () => ({ readTranscript: vi.fn(async () => n
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AudioSession } from "../src/components/AudioSession";
+import { PrivateDisplay } from "../src/components/PrivateDisplay";
+import * as display from "../src/lib/privateDisplay";
+vi.mock("../src/lib/privateDisplay", () => ({ privateDisplayAvailable: vi.fn(() => true), readPrivateDisplay: vi.fn(), setPrivateDisplay: vi.fn(), subscribePrivateDisplay: vi.fn(async () => () => {}) }));
 import * as audio from "../src/lib/audio";
 vi.mock("../src/lib/audio", async (original) => ({ ...await original<typeof import("../src/lib/audio")>(), listAudioDevices: vi.fn(), startAudio: vi.fn(), stopAudio: vi.fn(), readAudioStatus: vi.fn() }));
 const devices = { system: [{ id: "speakers", name: "Speakers", isDefault: true }], microphones: [{ id: "mic", name: "Mic", isDefault: true }] };
@@ -85,6 +88,25 @@ it("keeps Stop Session available after stop failure", async () => {
 it("bounds invalid and silent meter values", () => {
   expect(audio.meterPercent(Number.NaN)).toBe(0); expect(audio.meterPercent(0)).toBe(0);
   expect(audio.meterPercent(2)).toBe(100); expect(audio.meterPercent(0.001)).toBeCloseTo(0);
+});
+
+it("changing Private Display leaves live audio and Stop Session working", async () => {
+  vi.mocked(display.privateDisplayAvailable).mockReturnValue(true);
+  vi.mocked(display.subscribePrivateDisplay).mockResolvedValue(() => {});
+  vi.mocked(display.readPrivateDisplay).mockResolvedValue({ state: "on", requestedEnabled: true, message: null, revision: 1 });
+  vi.mocked(display.setPrivateDisplay).mockResolvedValue({ state: "off", requestedEnabled: false, message: null, revision: 2 });
+  render(<><PrivateDisplay /><AudioSession authenticated /></>);
+  await ready();
+  fireEvent.click(start());
+  await screen.findByText("Listening");
+  fireEvent.click(await screen.findByRole("button", { name: "Turn off Private Display" }));
+  await screen.findByText("Private Display: OFF");
+  expect(audio.stopAudio).not.toHaveBeenCalled();
+  expect(screen.getByText("Listening")).toBeTruthy();
+  await waitFor(() => expect(audio.readAudioStatus).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole("button", { name: "Stop Session" }));
+  await ready();
+  expect(audio.stopAudio).toHaveBeenCalledOnce();
 });
 
 it("keeps Stop visible if authentication disappears during startup and cleanup fails", async () => {

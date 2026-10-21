@@ -216,3 +216,52 @@ Cards progress through Queued → Preparing answer → Responding (draft) → Re
 Restart the native development app after updating its event permissions. For a later real test, review the same preparation, start a fresh Both-mode session and ask “Tell me about yourself” once. Draft sentences should appear before Ready to speak. Then check queued questions, Remove during Responding and Retry after any transient failure. Compare backend/native `[MeetGuide Timing]` logs and the WebView's development console by question ID and attempt. New metrics measure first useful output separately from full completion; no real-provider speedup is claimed from mocked tests.
 
 See [backend streaming documentation](../backend/README.md#streaming-live-cues) for protocol, provisional safety limits, unchanged model/prompt/context and the existing 25-second HTTP / shared 27-second generation / 35-second native timeout boundaries. No migrations, installer rebuild, new provider credentials or new dependencies are required.
+
+## Private Display (Windows)
+
+Private Display starts ON when the native main window opens, including before a live
+session. It calls `SetWindowDisplayAffinity` on Tauri's top-level HWND with
+`WDA_EXCLUDEFROMCAPTURE` (`0x11`); OFF uses `WDA_NONE` (`0`). Every operation reads
+`GetWindowDisplayAffinity` back. ON means Windows confirmed that affinity flag, not
+that every capture tool is guaranteed to respect it. Rejected calls, limited affinity
+and unreadable state are shown honestly; Check status refreshes the native read-back.
+Only two commands are exposed to the local main-window capability.
+
+The choice lives in Rust for the current application run, independently of audio,
+authentication, preparations, transcripts and cues. Stop/logout/React reload do not
+silently turn protection off or override an explicit OFF choice. Focus/restore checks
+and repairs the requested setting; resizing retains the same HWND/affinity. Closing
+destroys the window and Windows removes its per-window affinity automatically. No
+global Windows capture setting or persistent preference is written. Relaunch defaults
+to ON. The app is never hidden, minimized or made transparent by this feature.
+
+True capture exclusion needs Windows 10 version 2004 or newer and a composing DWM.
+Older Windows versions may show a blank window instead. Capture paths vary by tool,
+OS, driver and remote-session environment; this is not DRM, universal invisibility or
+a guarantee against capture. It cannot prevent a camera photographing the screen.
+Only the main MeetGuide window is covered, not separate developer tools, system
+dialogs, browser windows or other applications. Non-Windows reports Unavailable.
+Microsoft references:
+https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity
+and
+https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowdisplayaffinity .
+
+Later manual check (use the updated development app, not the unchanged installer):
+
+1. Run `./start-desktop.ps1` from the repository root. Confirm Private Display: ON
+   locally; test Check status, resize, minimize/restore and focus changes.
+2. Put non-sensitive sample content behind MeetGuide and use Windows Snipping Tool
+   (Win+Shift+S) to capture a region containing the window or the whole screen. Inspect
+   the resulting image: MeetGuide should be excluded on a supported path while it
+   remains visible on your monitor.
+3. Turn OFF and repeat the same capture: MeetGuide should now appear. Turn ON and
+   repeat. Do not rely on the toggle alone as proof for a particular capture tool.
+4. Share the entire monitor in your actual Teams/Zoom/Meet setup with a second
+   device/recipient. Verify the recipient's view with ON and OFF; sharing an unrelated
+   browser tab does not test this feature. Record any unsupported behavior.
+5. Confirm Start/Stop still works and toggling does not stop an active session.
+   An optional existing live session may be used later; no provider call is needed for
+   the screenshot checks. An explicit OFF choice survives Stop/new session in the same
+   app run. Close/relaunch and confirm the default returns to ON.
+
+No backend, provider, database, installer or updater changes are involved.

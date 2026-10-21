@@ -1,6 +1,7 @@
 mod audio;
 mod cue;
 mod preparation;
+mod private_display;
 mod timing;
 mod transcription;
 mod understanding;
@@ -15,6 +16,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(std::sync::Arc::new(auth::AuthService::default()))
         .manage(std::sync::Arc::new(audio::AudioService::default()))
+        .manage(private_display::PrivateDisplay::default())
         .setup(|app| {
             let handle = app.handle().clone();
             app.state::<std::sync::Arc<audio::AudioService>>()
@@ -22,9 +24,15 @@ pub fn run() {
                 .set_publisher(std::sync::Arc::new(move |snapshot| {
                     let _ = handle.emit_to("main", "meetguide-cue-update", snapshot);
                 }));
+            if let Some(webview) = app.get_webview_window("main") {
+                let _ = private_display::reconcile(&webview.as_ref().window());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                let _ = private_display::reconcile(window);
+            }
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 let _ = window.state::<std::sync::Arc<audio::AudioService>>().stop();
             }
@@ -36,6 +44,8 @@ pub fn run() {
             auth::auth_cancel,
             preparation::preparation_list,
             preparation::preparation_activate,
+            private_display::private_display_status,
+            private_display::private_display_set,
             audio::audio_devices,
             audio::audio_start,
             audio::audio_status,
