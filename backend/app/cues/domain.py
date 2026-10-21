@@ -12,8 +12,17 @@ class Turn(BaseModel):
     text: str = Field(min_length=1, max_length=1000, repr=False)
 
 
+class CodingContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    problem: str = Field(min_length=1, max_length=1600, repr=False)
+    language: str = Field(default="auto", max_length=40)
+    code: str = Field(default="", max_length=8000, repr=False)
+
+
 class CueInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
+    cue_kind: Literal["conversation", "code"] = "conversation"
+    coding_context: CodingContext | None = Field(default=None, repr=False)
     preparation_token: str | None = Field(default=None, max_length=12000, repr=False)
     _preparation: PreparedContext | None = PrivateAttr(default=None)
     type: Literal["question"]
@@ -46,12 +55,26 @@ class Draft(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list, max_length=3)
 
 
+class CodeAssist(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    language: str = Field(min_length=1, max_length=40)
+    approach: str = Field(min_length=1, max_length=1600, repr=False)
+    code: str = Field(min_length=1, max_length=8000, repr=False)
+    complexity: str | None = Field(default=None, max_length=1000)
+    what_to_say: str = Field(min_length=1, max_length=1800, repr=False)
+
+
+class CodeDraft(CodeAssist):
+    evidence_ids: list[str] = Field(default_factory=list, max_length=3)
+
+
 class SourceReference(BaseModel):
     document_id: UUID
     chunk_id: UUID
 
 
 class CueResult(BaseModel):
+    code_assist: CodeAssist | None = None
     answer: str = Field(repr=False)
     grounding: Literal["document_supported", "general_approach"]
     sources: list[SourceReference]

@@ -60,21 +60,36 @@ def metric_key(value: str) -> str:
     return canonical(value).replace("percent", "%").replace(" ", "").replace(",", "")
 
 
-def grounding_issue(answer: str, evidence: list[Evidence]) -> str | None:
+def grounding_issue(
+    answer: str, evidence: list[Evidence], *, personal_claim: bool = False
+) -> str | None:
     source = canonical(" ".join(item.text for item in evidence))
     for sentence in re.split(r"(?<=[.!?])\s+", answer):
         # A hypothetical approach or acknowledgement is not a claim of actual experience.
-        if not HISTORY.search(sentence):
+        history = personal_claim or bool(HISTORY.search(sentence))
+        if not history:
             continue
         if not evidence:
             return "Personal history without evidence"
+        if personal_claim:
+            tenure = re.search(
+                r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several)"
+                r"\s+(?:years?|months?)\b",
+                sentence,
+                re.I,
+            )
+            if tenure and canonical(tenure.group()) not in source:
+                return "Unsupported numeric fact"
         for technology in TECHNOLOGIES:
             pattern = r"(?<!\w)" + re.escape(technology) + r"(?!\w)"
             # Use named casing for technology names that are also everyday English.
             flags = 0 if technology in {"React", "Dynamics", "Workday", "Oracle"} else re.I
             if re.search(pattern, sentence, flags) and not re.search(pattern, source, re.I):
                 return "Unsupported technology"
-        for name in NAMED.findall(sentence):
+        names = NAMED.findall(sentence)
+        if personal_claim:
+            names += re.findall(r"\b(?i:at|for|with)\s+([A-Z][a-zA-Z&-]{2,})", sentence)
+        for name in names:
             if canonical(name) not in source:
                 return "Unsupported named fact"
         for metric in METRIC.findall(sentence):

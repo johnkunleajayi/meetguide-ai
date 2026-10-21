@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { usePreparations } from "../../hooks/usePreparations";
 import type { ContextLibraryState } from "../../hooks/useContextLibrary";
-import { CATEGORIES, PURPOSES, categoryLabel, type PreparationInput } from "../../lib/preparations";
+import { CATEGORIES, PURPOSES, CODING_LANGUAGES, categoryLabel, type PreparationInput } from "../../lib/preparations";
 import { DocumentUpload } from "./DocumentUpload";
 
+const toDraft = (item: PreparationInput): PreparationInput => ({ purpose: item.purpose, objective: item.objective, documents: item.documents, technical_interview: item.technical_interview || false, coding_language: item.coding_language || "auto" });
 const empty = (): PreparationInput => ({ purpose: "", objective: "", documents: [] });
 export function PreparationEditor({ library }: { library: ContextLibraryState }) {
   const preparations = usePreparations();
@@ -16,7 +17,7 @@ export function PreparationEditor({ library }: { library: ContextLibraryState })
     if (preparations.loading || initialized.current) return;
     initialized.current = true;
     const active = preparations.items.find(p => p.active);
-    if (active) { setId(active.id); setDraft({ purpose: active.purpose, objective: active.objective, documents: active.documents }); }
+    if (active) { setId(active.id); setDraft(toDraft(active)); }
   }, [preparations.loading, preparations.items]);
   const active = preparations.items.find(p => p.active);
   const purpose = PURPOSES.find(p => p.id === draft.purpose);
@@ -32,10 +33,16 @@ export function PreparationEditor({ library }: { library: ContextLibraryState })
     {preparations.error && <p className="ws-error" role="alert">{preparations.error}</p>}
     <label className="prep-field">Saved preparations<select disabled={locked} value={id} onChange={event => {
       const item = preparations.items.find(p => p.id === event.target.value);
-      setId(item?.id || ""); setDraft(item ? { purpose: item.purpose, objective: item.objective, documents: item.documents } : empty()); setNotice("");
+      setId(item?.id || ""); setDraft(item ? toDraft(item) : empty()); setNotice("");
     }}><option value="">New preparation</option>{preparations.items.map(p => <option key={p.id} value={p.id}>{p.objective}{p.active ? " · Active for Desktop" : ""}</option>)}</select></label>
     <fieldset className="prep-purposes" disabled={locked}><legend>1. Session purpose</legend>{PURPOSES.map(p => <label key={p.id} className="prep-purpose" data-selected={draft.purpose === p.id}><input type="radio" name="purpose" value={p.id} checked={draft.purpose === p.id} onChange={() => { setDraft(v => ({ ...v, purpose: p.id })); setNotice(""); }} />{p.label}</label>)}</fieldset>
     <label className="prep-field">2. What would you like to accomplish?<textarea disabled={locked} maxLength={600} value={draft.objective} onChange={event => { setDraft(v => ({ ...v, objective: event.target.value })); setNotice(""); }} placeholder="Describe the conversation and what you want help with." rows={3} /></label>
+    {draft.purpose === "job_interview" && <fieldset className="prep-field" disabled={locked}>
+      <legend>Optional interview preferences</legend>
+      <label><input type="checkbox" checked={draft.technical_interview || false} onChange={event => setDraft(v => ({ ...v, technical_interview: event.target.checked }))} /> Technical/Coding interview</label>
+      {draft.technical_interview && <label className="prep-field">Preferred coding language<select value={draft.coding_language || "auto"} onChange={event => setDraft(v => ({ ...v, coding_language: event.target.value }))}>{CODING_LANGUAGES.map(language => <option key={language.id} value={language.id}>{language.label}</option>)}</select></label>}
+      <small>Optional. A language requested during the conversation takes priority.</small>
+    </fieldset>}
     <section id="context-library" aria-labelledby="session-context-title" className="prep-context">
       <h3 id="session-context-title">3. Relevant context</h3><p>Add anything MeetGuide should know for this session. Documents are optional.</p>
       <p className="prep-guidance"><strong>Suggested for {purpose?.label || "this session"}</strong><br />{purpose?.guidance || "Relevant professional context documents."}<br />PDF, DOCX or TXT only, including text-based exports of presentations. No PPTX upload.</p>
@@ -59,7 +66,7 @@ export function PreparationEditor({ library }: { library: ContextLibraryState })
     <section className="prep-review" aria-labelledby="prep-review-title"><div><p className="ws-eyebrow">4. PREPARATION SUMMARY</p><h3 id="prep-review-title">{purpose?.label || (draft.purpose ? draft.purpose.replaceAll("_", " ") : "Choose a purpose")}</h3><p>{draft.objective || "Add an objective above."}</p><span>{selected.length} context document{selected.length === 1 ? "" : "s"} selected{!selected.length ? " · General assistance" : ""}</span></div>
       <button className="ws-primary-button" type="button" disabled={locked || library.loadError || !draft.purpose || !draft.objective.trim()} onClick={async () => {
         const result = await preparations.save({ ...draft, documents: selected }, id || undefined);
-        if (result) { const saved = result.item; setId(saved.id); setDraft({ purpose: saved.purpose, objective: saved.objective, documents: saved.documents }); setNotice(result.activated ? "Preparation saved and selected for Desktop. Review it there before starting." : ""); }
+        if (result) { const saved = result.item; setId(saved.id); setDraft(toDraft(saved)); setNotice(result.activated ? "Preparation saved and selected for Desktop. Review it there before starting." : ""); }
       }}>{preparations.busy ? "Saving…" : "Save & use preparation"}</button>
     </section>
     {notice && <p role="status" className="ws-notice">{notice}</p>}

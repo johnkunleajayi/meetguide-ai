@@ -9,7 +9,7 @@ from app.cues.gemini import FINISH_CODES, http_reason, unavailable
 from app.cues.stream_timing import mark
 
 
-async def stream(provider, system, user):
+async def stream(provider, system, user, response_model=Draft):
     if not provider.settings.gemini_api_key:
         raise unavailable("KEY_NOT_CONFIGURED")
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{provider.settings.live_cue_model}:streamGenerateContent?alt=sse"
@@ -29,7 +29,7 @@ async def stream(provider, system, user):
                         "temperature": 0.2,
                         "maxOutputTokens": 2200,
                         "responseMimeType": "application/json",
-                        "responseJsonSchema": Draft.model_json_schema(),
+                        "responseJsonSchema": response_model.model_json_schema(),
                     },
                 },
             ) as response:

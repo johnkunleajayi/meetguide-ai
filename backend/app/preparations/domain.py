@@ -1,6 +1,7 @@
 """Extensible identifiers; listed purposes/categories are guidance, not engine branches."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,6 +42,10 @@ class PreparationInput(BaseModel):
     purpose: str = Field(pattern=IDENTIFIER)
     objective: str = Field(min_length=1, max_length=600, repr=False)
     documents: list[Selection] = Field(default_factory=list, max_length=50)
+    technical_interview: bool = False
+    coding_language: Literal[
+        "auto", "python", "javascript", "typescript", "java", "apex", "csharp", "go", "sql", "other"
+    ] = "auto"
 
 
 class PreparedContext(PreparationInput):

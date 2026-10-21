@@ -9,7 +9,8 @@ export const PURPOSES = [
 export const CATEGORIES = ["resume", "job_description", "company_profile", "client_profile", "product_information", "proposal", "agenda", "project_document", "meeting_notes", "presentation", "reference_material", "other"];
 export const categoryLabel = (id: string) => id === "resume" ? "Résumé / CV" : id.replaceAll("_", " ").replace(/^./, c => c.toUpperCase());
 export interface Selection { document_id: string; context_role: string }
-export interface PreparationInput { purpose: string; objective: string; documents: Selection[] }
+export const CODING_LANGUAGES = [{ id: "auto", label: "Auto-detect" }, { id: "python", label: "Python" }, { id: "javascript", label: "JavaScript" }, { id: "typescript", label: "TypeScript" }, { id: "java", label: "Java" }, { id: "apex", label: "Apex" }, { id: "csharp", label: "C#" }, { id: "go", label: "Go" }, { id: "sql", label: "SQL" }, { id: "other", label: "Other" }];
+export interface PreparationInput { technical_interview?: boolean; coding_language?: string; purpose: string; objective: string; documents: Selection[] }
 export interface Preparation extends PreparationInput { id: string; active: boolean; created_at: string; updated_at: string }
 const API = "http://127.0.0.1:8000/api/preparations";
 async function request(path: string, options: RequestInit = {}) {

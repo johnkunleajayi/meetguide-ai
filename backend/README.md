@@ -392,3 +392,78 @@ No SDK or automatic HTTP retry is used. HTTPX timeout remains 25 seconds, the sh
 Development `[MeetGuide Timing]` logs include `live_cue_streaming=true`, first useful output and completion timestamps (Unix milliseconds), monotonic time-to-first-output, generation/retrieval/validation/backend durations, counts and fixed failure categories. Native records add question/final-transcript-to-first-output timings alongside existing ready/queue/Intent timings; UI records add observation delay per attempt. These logs contain no private content, keys or tokens. Timing metadata measures software stages, not physical speech onset.
 
 For the real baseline comparison later: restart backend and the native Tauri development app (new listen/unlisten permissions require a native restart), review the same preparation and start a fresh Both-mode session. Ask “Tell me about yourself” once. Confirm draft sentences appear in Responding before Ready to speak, then compare first-output and full-generation timings using the same question ID. Ask three distinct questions while work remains; confirm FIFO and retained cards. Remove a responding card; subsequent questions must wait for its active generation, then continue. If a transient failure occurs, Retry must restart empty with the same question ID and a higher attempt. Stop/restart/logout must clear live state. No installer rebuild, migration or credential change is required. No real-provider latency improvement has been claimed from mocked tests.
+
+
+## Code Assist (first milestone)
+
+Code Assist is a structured variant of the same Live Cue endpoint, retrieval service,
+OpenAI GPT-6 Luna adapter, HTTPX SSE stream and NDJSON response. There is no second
+AI pipeline, provider configuration, execution service or persisted cue history.
+Normal conversational requests keep their existing prompt, schema, preview and validation.
+The optional schema parameter at the existing provider boundary also preserves the dormant
+Gemini Live Cue adapter; Gemini transcription and Intent are unchanged.
+
+Native local routing uses a small request-grammar gate: construction verbs plus programming
+objects/languages, or algorithm operations on data structures. Obvious code requests bypass
+Gemini Intent. Referential optimization/space/language follow-ups require a current coding
+problem. Generic "Why?"/"Can you explain that?" and personal-experience questions keep the
+normal route. A normal actionable question ends the coding routing chain. This conservative
+first gate does not promise to recognize every programming paraphrase.
+
+`CueInput.cue_kind` defaults to `conversation`; `code` selects the structured Draft schema.
+A bounded optional `coding_context` contains one prior problem, language and validated
+solution (maximum 1,600 / 40 / 8,000 characters). Native FIFO enriches a waiting follow-up
+with the preceding completed solution when its problem matches. This memory is independent
+of visible cards: Remove does not erase it. Stop/logout/restart clears it. No transcripts,
+code or cues are written to PostgreSQL or disk.
+
+Code results contain `code_assist` with `language`, `approach`, `code`, nullable `complexity`
+and `what_to_say`; `answer` remains the spoken explanation for transport compatibility.
+Partial NDJSON events add the same structured object. Partial code shows complete lines,
+is labelled Draft, and is cleared on rejection/failure. Ready requires schema validation,
+bounded output, valid selected evidence IDs and the unchanged shared factual-grounding
+tripwires. General algorithms/generated code do not need resume evidence; invented personal,
+company or document claims remain prohibited. Complexity may be null, especially where SQL
+plans/indexes are unknown. Generated code is never executed, compiled or independently
+verified for correctness in this milestone.
+
+Code retrieval ranks only explicitly selected owned documents using the current coding
+problem (and prior coding problem for follow-ups), excluding unrelated conversation topics.
+Normal retrieval, including broad interview-introduction expansion, is unchanged. Language
+priority is explicit current request, coding context, optional frozen technical-interview
+preference, then inference. Resume technologies do not select the language. The same model,
+2,200 output-token cap, timeouts, bounded regeneration, timing stages and no-provider-fallback
+policy remain in force. Code streams have bounded larger JSON/frame budgets to preserve
+formatting; they do not create multiple cards or change FIFO/Retry/Remove semantics.
+
+### Pending preparation migration - NOT applied automatically
+
+`0005_code_assist_preference` adds `technical_interview` (false) and `coding_language`
+(auto) to `session_preparations`. Existing documents/preparations are preserved; legacy
+signed snapshots and missing API fields default to normal/auto. Web Job Interview preparation
+has optional Technical/Coding interview and language controls. Choices are copied into the
+existing signed snapshot, so edits affect the next session only. Supported preferences:
+auto, python, javascript, typescript, java, apex, csharp, go, sql, other.
+
+After review/approval, the eventual command **from backend/** is:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade 0005_code_assist_preference
+```
+
+This implementation did not apply it to Neon. The updated preparation API requires these
+columns before live manual testing; offline/mocked checks are not live database proof.
+No new environment variables, provider keys, dependencies or installer build are required.
+
+Later combined manual test: after the migration is deliberately applied, prepare a Job
+Interview with Technical/Coding interview enabled, Python preference and no documents.
+Refresh/review in the development desktop and Start. Ask for a duplicate-finding function;
+then "Can you optimize that solution?" and "Can you do it without extra space?" while an
+answer is pending. Expect distinct FIFO cards, progressive code with preserved indentation,
+optional complexity and What to say. Ask "Implement this in JavaScript" to verify explicit
+language priority. Test a new Apex trigger and a SQL second-highest-salary question; SQL
+need not invent Big-O. Remove a card, ask another coding follow-up, and test Retry after a
+failure. Finally ask "Tell me about yourself" to verify the normal cue format returns.
+Repeat with selected versus unselected synthetic documents to inspect context isolation.
+Keep Private Display ON and confirm its existing capture protection separately. Do not
+execute generated code as part of this first milestone's MeetGuide workflow.

@@ -6,7 +6,8 @@ from pydantic import ValidationError
 from app.context.repository import ContextRepository
 from app.context.retrieval import LocalLexicalIndex
 from app.core.timing import current, measure
-from app.cues.domain import CueInput, Draft, Evidence
+from app.cues import code_assist
+from app.cues.domain import CodeDraft, CueInput, Draft, Evidence
 from app.cues.preview import preview
 from app.cues.prompt import SYSTEM, user_prompt, validate_draft
 from app.cues.provider import CueProvider, ProviderUnavailable
@@ -28,7 +29,15 @@ GROUNDING_REASONS = {
 
 
 def retrieve_evidence(repository: ContextRepository, user_id, payload: CueInput) -> list[Evidence]:
-    query = retrieval_query(payload)
+    query = (
+        (
+            payload.question
+            + " "
+            + (payload.coding_context.problem if payload.coding_context else "")
+        )
+        if payload.cue_kind == "code"
+        else retrieval_query(payload)
+    )
     scope = payload._preparation
     selections = scope.documents if scope is not None and scope.user_id == user_id else []
     roles = {entry.document_id: entry.context_role for entry in selections}
@@ -51,25 +60,37 @@ def retrieve_evidence(repository: ContextRepository, user_id, payload: CueInput)
 async def generate_cue(
     provider: CueProvider, payload: CueInput, evidence: list[Evidence], emit=None
 ):
-    system = SYSTEM
+    coding = payload.cue_kind == "code"
+    response_model = CodeDraft if coding else Draft
+    base_system = code_assist.SYSTEM_CODE if coding else SYSTEM
+    system = base_system
+    make_prompt = code_assist.prompt if coding else user_prompt
     stream_started = time.perf_counter()
     for attempt in range(2):
         if timing := current.get():
             timing.values["generation_attempt_count"] = attempt + 1
         with measure("live_cue_generation_ms"):
             if emit is None:
-                draft = await provider.generate(system, user_prompt(payload, evidence))
+                draft = await provider.generate(
+                    system,
+                    make_prompt(payload, evidence),
+                    **({"response_model": response_model} if coding else {}),
+                )
             else:
                 if timing := current.get():
                     timing.values.setdefault(
                         "live_cue_request_started_at", round(time.time() * 1000)
                     )
                 raw, shown = "", ""
-                async for fragment in provider.stream(system, user_prompt(payload, evidence)):
+                async for fragment in provider.stream(
+                    system,
+                    make_prompt(payload, evidence),
+                    **({"response_model": response_model} if coding else {}),
+                ):
                     raw += fragment
-                    if len(raw.encode()) > 16384:
+                    if len(raw.encode()) > (32768 if coding else 16384):
                         raise ProviderUnavailable("RESPONSE_TOO_LARGE")
-                    text = preview(raw, evidence)
+                    text = code_assist.preview(raw, evidence) if coding else preview(raw, evidence)
                     if text and text != shown:
                         mark("first_displayable_text")
                         if timing := current.get():
@@ -79,20 +100,34 @@ async def generate_cue(
                                 timing.values["live_cue_time_to_first_output_ms"] = (
                                     time.perf_counter() - stream_started
                                 ) * 1000
-                        await emit({"type": "partial", "answer": text})
+                        await emit(
+                            {
+                                "type": "partial",
+                                "answer": text.get("what_to_say", "")
+                                or text.get("approach", "")
+                                or "Code Assist draft",
+                                "code_assist": text,
+                            }
+                            if coding
+                            else {"type": "partial", "answer": text}
+                        )
                         shown = text
                     elif shown and not text:
                         await emit({"type": "reset"})
                         shown = ""
                 mark("generation_completed")
                 try:
-                    draft = Draft.model_validate_json(raw)
+                    draft = response_model.model_validate_json(raw)
                 except ValidationError:
                     raise ProviderUnavailable("RESPONSE_SCHEMA_REJECTED") from None
         try:
             with measure("validation_ms"):
                 try:
-                    result = validate_draft(draft, evidence)
+                    result = (
+                        code_assist.validate(draft, evidence)
+                        if coding
+                        else validate_draft(draft, evidence)
+                    )
                 finally:
                     if emit is not None:
                         mark("validation_completed")
@@ -109,10 +144,14 @@ async def generate_cue(
                 raise ProviderUnavailable("VALIDATION_REJECTED") from None
             # One conservative regeneration, not a second LLM judge. The prior output is
             # not resent; both attempts share the API's existing overall deadline/cancellation.
-            system = SYSTEM + (
+            system = base_system + (
                 "\nREGENERATE CONSERVATIVELY: previous output failed a local check: "
                 + reason
                 + ". Omit uncertain personal details and metrics. Use only clearly supported "
                 "experience; acknowledge missing facts and use a general approach for gaps. "
-                "Return the required natural spoken paragraphs and valid evidence IDs."
+                + (
+                    "Return the required structured Code Assist fields and valid evidence IDs."
+                    if coding
+                    else "Return the required natural spoken paragraphs and valid evidence IDs."
+                )
             )

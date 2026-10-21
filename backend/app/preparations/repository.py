@@ -38,6 +38,8 @@ class PreparationRepository:
                 id=item.id,
                 purpose=item.purpose,
                 objective=item.objective,
+                technical_interview=item.technical_interview,
+                coding_language=item.coding_language,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
                 active=bool(active and active.preparation_id == item.id),
@@ -83,6 +85,8 @@ class PreparationRepository:
         if preparation_id is None and len(self.list(user_id)) >= 100:
             raise ValueError("Up to 100 preparations are supported")
         item.purpose, item.objective = payload.purpose, payload.objective
+        item.technical_interview = payload.technical_interview
+        item.coding_language = payload.coding_language
         item.updated_at = datetime.now(UTC)
         self.database.add(item)
         self.database.flush()

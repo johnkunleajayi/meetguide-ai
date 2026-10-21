@@ -50,14 +50,14 @@ class GeminiProvider:
     def __init__(self, settings: Settings, transport=None):
         self.settings, self.transport = settings, transport
 
-    async def stream(self, system: str, user: str):
+    async def stream(self, system: str, user: str, response_model=Draft):
         from app.cues.gemini_stream import stream
 
-        async for fragment in stream(self, system, user):
+        async for fragment in stream(self, system, user, response_model):
             yield fragment
 
-    async def generate(self, system: str, user: str) -> Draft:
-        return await self.request_json(system, user, Draft, 2200)
+    async def generate(self, system: str, user: str, response_model=Draft):
+        return await self.request_json(system, user, response_model, 2200)
 
     async def request_json(self, system: str, user: str, response_model, token_limit: int):
         if not self.settings.gemini_api_key:

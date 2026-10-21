@@ -87,3 +87,15 @@ it("keeps long objectives and document names intact in preparation and summary",
  expect(documentLabel.closest("label")?.querySelector("input[type=checkbox]")).toBeTruthy();
  expect((screen.getByLabelText("2. What would you like to accomplish?") as HTMLTextAreaElement).value).toBe(objective);
 });
+
+it("saves optional technical interview preferences without requiring documents", async () => {
+ const fetch = show([]); await choose();
+ fireEvent.click(screen.getByRole("radio", { name: "Job Interview" }));
+ fireEvent.click(screen.getByRole("checkbox", { name: "Technical/Coding interview" }));
+ expect((screen.getByLabelText("Preferred coding language") as HTMLSelectElement).value).toBe("auto");
+ fireEvent.change(screen.getByLabelText("Preferred coding language"), { target: { value: "python" } });
+ fireEvent.click(screen.getByRole("button", { name: "Save & use preparation" }));
+ await screen.findByText(/Preparation saved and selected/);
+ const saved = fetch.mock.calls.find(([url, opt]) => url.endsWith("/preparations") && opt?.method === "POST")!;
+ expect(JSON.parse(saved[1]!.body as string)).toEqual(expect.objectContaining({ purpose: "job_interview", technical_interview: true, coding_language: "python", documents: [] }));
+});

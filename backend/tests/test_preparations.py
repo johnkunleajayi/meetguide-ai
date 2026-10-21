@@ -298,3 +298,28 @@ def test_no_document_live_scope_does_not_fall_back_to_account_resume(cue_api):
     assert result.status_code == 200 and result.json()["grounding"] == "general_approach"
     assert repository.owners == []
     assert provider.calls[0][1]["document_evidence"] == []
+
+
+@pytest.mark.parametrize(
+    "language",
+    ["auto", "python", "javascript", "typescript", "java", "apex", "csharp", "go", "sql", "other"],
+)
+def test_optional_coding_preferences_persist_and_freeze(library, language):
+    from app.preparations.domain import PreparationView
+    from app.preparations.snapshot import freeze
+
+    client, _, _, users = library
+    body = {
+        "purpose": "job_interview",
+        "objective": "Fictional coding interview",
+        "documents": [],
+        "technical_interview": True,
+        "coding_language": language,
+    }
+    response = client.post("/api/preparations", json=body, headers=ORIGIN)
+    assert response.status_code == 201
+    saved = response.json()
+    assert saved["technical_interview"] is True and saved["coding_language"] == language
+    assert client.get("/api/preparations").json()[0]["coding_language"] == language
+    token = freeze(client.app, users[0].id, PreparationView.model_validate(saved))
+    assert resolve(client.app, users[0].id, token).coding_language == language

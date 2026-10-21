@@ -39,24 +39,30 @@ class OpenAIProvider:
     def __init__(self, settings, transport=None):
         self.settings, self.transport = settings, transport
 
-    async def generate(self, system: str, user: str) -> Draft:
+    async def generate(self, system: str, user: str, response_model=Draft):
         # Legacy whole-response clients consume the same bounded structured stream.
-        raw = "".join([fragment async for fragment in self.stream(system, user)])
+        raw = "".join(
+            [
+                fragment
+                async for fragment in self.stream(system, user, response_model=response_model)
+            ]
+        )
         try:
-            return Draft.model_validate_json(raw)
+            return response_model.model_validate_json(raw)
         except ValidationError:
             raise unavailable("RESPONSE_SCHEMA_REJECTED", 200) from None
 
-    async def stream(self, system: str, user: str):
+    async def stream(self, system: str, user: str, response_model=Draft):
         if not self.settings.openai_api_key:
             raise unavailable("KEY_NOT_CONFIGURED")
         if timing := current.get():
             timing.values.update(provider="openai", model=self.settings.openai_live_cue_model)
-        schema = Draft.model_json_schema()
+        schema = response_model.model_json_schema()
         # Strict Structured Outputs requires every property, including empty evidence_ids.
         # This changes only the wire schema; shared Draft/grounding semantics stay intact.
         schema["required"] = list(schema["properties"])
-        schema["properties"]["evidence_ids"].pop("default", None)
+        for field in schema["properties"].values():
+            field.pop("default", None)
         body = {
             "model": self.settings.openai_live_cue_model,
             "instructions": system,
@@ -101,7 +107,7 @@ class OpenAIProvider:
                         fragment, complete = text_fragment(event, raw)
                         if fragment:
                             raw += fragment
-                            if len(raw.encode()) > 16384:
+                            if len(raw.encode()) > (16384 if response_model is Draft else 32768):
                                 raise unavailable("RESPONSE_TOO_LARGE", 200)
                             mark("first_content_fragment")
                             yield fragment

@@ -21,6 +21,8 @@ def freeze(application, user_id, view):
         purpose=view.purpose,
         objective=view.objective,
         documents=view.documents,
+        technical_interview=getattr(view, "technical_interview", False),
+        coding_language=getattr(view, "coding_language", "auto"),
     )
     return signer(application).dumps(snapshot.model_dump(mode="json"))
 
