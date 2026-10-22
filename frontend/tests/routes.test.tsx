@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { AppRoutes } from "../src/App";
 import { GOOGLE_LOGIN_URL, rememberWorkspace } from "../src/lib/auth";
@@ -26,9 +26,9 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); sessionStorage.clear(); loca
 
 it("keeps / public when signed out, with marketing and no Context Library requests", async () => {
   const fetch = show("/", false);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Know what");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Be present");
   expect((await screen.findByRole("link", { name: "Sign in" })).getAttribute("href")).toBe(GOOGLE_LOGIN_URL);
-  expect(screen.getByRole("link", { name: "Get started" }).getAttribute("href")).toBe(GOOGLE_LOGIN_URL);
+  expect(within(screen.getByRole("banner")).getByRole("link", { name: "Get MeetGuide", exact: true }).getAttribute("href")).toBe(GOOGLE_LOGIN_URL);
   expect(screen.queryByRole("heading", { name: "What are you preparing for?" })).toBeNull();
   expect(screen.queryByLabelText("Upload context document")).toBeNull();
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -86,8 +86,8 @@ it("returns an authenticated OAuth callback at / to /app using only fixed route 
 
 it("public Sign in and Get started record workspace intent without changing OAuth URLs", async () => {
   show("/", false);
-  for (const name of ["Sign in", "Get started"]) {
-    const link = await screen.findByRole("link", { name });
+  for (const name of ["Sign in", "Get MeetGuide"]) {
+    const link = await within(screen.getByRole("banner")).findByRole("link", { name });
     link.addEventListener("click", (event) => event.preventDefault(), { once: true });
     fireEvent.click(link);
     expect(sessionStorage.getItem("meetguide-open-workspace")).toBe("true");
