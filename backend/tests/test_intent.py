@@ -1,4 +1,4 @@
-"""Synthetic transcript fixtures and mocked Gemini only; no real provider calls."""
+"""Synthetic transcript fixtures and mocked OpenAI only; no real provider calls."""
 
 import asyncio
 import json
@@ -13,7 +13,7 @@ from app.cues.provider import ProviderUnavailable
 from app.db.auth_repository import get_auth_repository
 from app.intent.api import get_intent_provider
 from app.intent.domain import IntentInput, IntentResult
-from app.intent.gemini import GeminiIntentProvider
+from app.intent.openai import OpenAIIntentProvider
 
 
 def payload(**changes):
@@ -113,7 +113,7 @@ def test_bounded_transcript_inputs_reach_replaceable_provider(intent_api, text):
         {"can_continue": True, "previous_request": None},
     ],
 )
-def test_invalid_or_unbounded_input_never_reaches_gemini(intent_api, change):
+def test_invalid_or_unbounded_input_never_reaches_provider(intent_api, change):
     client, provider = intent_api
     assert post(client, payload(**change)).status_code == 422
     assert not provider.calls
@@ -149,7 +149,7 @@ def test_continuation_cannot_cross_an_ineligible_boundary(intent_api):
 
 
 def test_disabled_intent_never_uses_provider(client):
-    client.app.state.settings.gemini_intent_enabled = False
+    client.app.state.settings.intent_enabled = False
     client.app.dependency_overrides[get_auth_repository] = lambda: SimpleNamespace(
         user_for_session=lambda *args: SimpleNamespace(id=uuid4())
     )
@@ -157,57 +157,116 @@ def test_disabled_intent_never_uses_provider(client):
     client.app.dependency_overrides.clear()
 
 
-def test_gemini_adapter_is_small_structured_and_contains_transcript_only(settings):
-    configured = settings.model_copy(update={"gemini_api_key": SecretStr("synthetic-test-key")})
+def openai_response(result):
+    return {
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": json.dumps(result)}],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "kind", ["ACTIONABLE_REQUEST", "CONTINUATION", "FOLLOW_UP", "NOT_ACTIONABLE"]
+)
+def test_openai_adapter_is_small_structured_and_transcript_only(settings, kind):
+    configured = settings.model_copy(update={"openai_api_key": SecretStr("synthetic-test-key")})
+    calls = []
 
     def handle(request):
+        calls.append(request)
+        assert str(request.url) == "https://api.openai.com/v1/responses"
         assert "synthetic-test-key" not in str(request.url)
+        assert request.headers["authorization"] == "Bearer synthetic-test-key"
         data = json.loads(request.content)
-        assert data["generationConfig"]["maxOutputTokens"] == 384
-        assert "kind" in data["generationConfig"]["responseJsonSchema"]["properties"]
-        sent = json.loads(data["contents"][0]["parts"][0]["text"])
+        assert data["model"] == configured.openai_live_cue_model
+        assert data["reasoning"] == {"effort": "none"}
+        assert data["max_output_tokens"] == 384
+        assert data["store"] is False and data["stream"] is False
+        assert data["text"]["format"]["strict"] is True
+        schema = data["text"]["format"]["schema"]
+        assert set(schema["required"]) == {"kind", "normalized_request", "confidence"}
+        assert schema["additionalProperties"] is False
+        sent = json.loads(data["input"][0]["content"])
         assert set(sent) == {"text", "context", "previous_request", "can_continue"}
         result = {
-            "kind": "FOLLOW_UP",
-            "normalized_request": "Why did you test the migration that way?",
+            "kind": kind,
+            "normalized_request": "Why did you test it that way?"
+            if kind != "NOT_ACTIONABLE"
+            else "",
             "confidence": 0.94,
         }
-        return httpx.Response(
-            200,
-            json={
-                "candidates": [
-                    {"finishReason": "STOP", "content": {"parts": [{"text": json.dumps(result)}]}}
-                ]
-            },
-        )
+        return httpx.Response(200, json=openai_response(result))
 
-    provider = GeminiIntentProvider(configured, httpx.MockTransport(handle))
+    provider = OpenAIIntentProvider(configured, httpx.MockTransport(handle))
     result = asyncio.run(provider.classify(IntentInput.model_validate(payload(text="Why?"))))
-    assert result.kind == "FOLLOW_UP"
+    assert result.kind == kind
+    assert len(calls) == 1
 
 
-@pytest.mark.parametrize("mode", ["timeout", "quota", "malformed", "invalid_schema"])
-def test_real_adapter_failure_modes_are_sanitized(settings, mode):
-    configured = settings.model_copy(update={"gemini_api_key": SecretStr("synthetic-test-key")})
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "timeout",
+        "network",
+        "quota",
+        "unavailable",
+        "malformed",
+        "invalid_schema",
+        "incomplete",
+        "refusal",
+        "oversized",
+    ],
+)
+def test_openai_adapter_failure_modes_are_sanitized_without_retries_or_fallback(
+    settings, mode, caplog
+):
+    configured = settings.model_copy(update={"openai_api_key": SecretStr("synthetic-test-key")})
+    calls = []
 
     def handle(request):
+        calls.append(str(request.url))
         if mode == "timeout":
             raise httpx.ReadTimeout("private request body must not leak")
-        if mode == "quota":
-            return httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
-        text = (
-            "not json"
-            if mode == "malformed"
-            else json.dumps({"kind": "UNSUPPORTED", "normalized_request": "Why?", "confidence": 1})
+        if mode == "network":
+            raise httpx.ConnectError("private request body must not leak")
+        if mode in {"quota", "unavailable"}:
+            return httpx.Response(
+                429 if mode == "quota" else 503, json={"error": "private provider body"}
+            )
+        if mode == "malformed":
+            return httpx.Response(200, content=b"not json")
+        if mode == "oversized":
+            return httpx.Response(200, content=b"x" * 32769)
+        data = openai_response(
+            {"kind": "UNSUPPORTED", "normalized_request": "Why?", "confidence": 1}
         )
-        return httpx.Response(
-            200,
-            json={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": text}]}}]},
-        )
+        if mode == "incomplete":
+            data["status"] = "incomplete"
+        if mode == "refusal":
+            data["output"][0]["content"] = [{"type": "refusal", "refusal": "private content"}]
+        return httpx.Response(200, json=data)
 
-    provider = GeminiIntentProvider(configured, httpx.MockTransport(handle))
-    with pytest.raises(ProviderUnavailable):
+    provider = OpenAIIntentProvider(configured, httpx.MockTransport(handle))
+    with pytest.raises(ProviderUnavailable) as captured:
         asyncio.run(provider.classify(IntentInput.model_validate(payload())))
+    assert captured.value.reason in {
+        "TIMEOUT",
+        "TRANSPORT_ERROR",
+        "RESOURCE_EXHAUSTED",
+        "UNAVAILABLE",
+        "MALFORMED_RESPONSE",
+        "RESPONSE_SCHEMA_REJECTED",
+        "FINISH_SAFETY",
+        "RESPONSE_TOO_LARGE",
+    }
+    assert calls == ["https://api.openai.com/v1/responses"]
+    assert "synthetic-test-key" not in caplog.text
+    assert "private" not in str(captured.value) + caplog.text
 
 
 def test_intent_concurrency_and_body_size_limits(intent_api):
@@ -245,10 +304,47 @@ def test_intent_timing_is_correlated_and_content_free(intent_api, caplog, failur
         if "[MeetGuide Timing]" in item.message
     )
     assert record["question_id"] == "q-intent-timing"
-    assert record["intent_route"] == "gemini" and record["intent_request_ms"] >= 0
+    assert record["intent_route"] == "openai" and record["intent_request_ms"] >= 0
     assert record["conversation_turn_count"] == 1
     if failure is not None:
         assert record["provider_error_type"] in {"TIMEOUT", "RESOURCE_EXHAUSTED"}
     assert payload()["text"] not in caplog.text
     assert payload()["context"][0]["text"] not in caplog.text
     assert "a" * 43 not in caplog.text
+
+
+def test_provider_selection_uses_openai_only_and_needs_no_gemini_key(client):
+    settings = client.app.state.settings
+    settings.live_cue_enabled = True
+    settings.openai_api_key = SecretStr("synthetic-openai-only")
+    settings.gemini_api_key = None
+    request = SimpleNamespace(app=client.app)
+    assert isinstance(get_intent_provider(request), OpenAIIntentProvider)
+    settings.openai_api_key = None
+    settings.gemini_api_key = SecretStr("synthetic-gemini-only")
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as captured:
+        get_intent_provider(request)
+    assert captured.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "reason,status", [("RESOURCE_EXHAUSTED", 429), ("TIMEOUT", None), ("UNAVAILABLE", 503)]
+)
+def test_intent_failure_header_has_only_fixed_reason(intent_api, reason, status):
+    client, provider = intent_api
+    provider.failure = ProviderUnavailable(reason, status)
+    response = post(client)
+    assert response.status_code == 503
+    assert response.headers["x-meetguide-intent-failure"] == reason
+
+
+def test_intent_enable_flag_accepts_legacy_name_without_env_edit(settings, monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("GEMINI_INTENT_ENABLED", "false")
+    config = {"database_url": settings.database_url}
+    assert not Settings(_env_file=None, **config).intent_enabled
+    monkeypatch.setenv("INTENT_ENABLED", "true")
+    assert Settings(_env_file=None, **config).intent_enabled

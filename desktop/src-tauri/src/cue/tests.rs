@@ -259,7 +259,7 @@ async fn semantic_continuation_updates_one_question_and_duplicates_do_not_call_p
             ),
             &s,
             epoch,
-            |_| async { panic!("duplicate must not call Gemini") },
+            |_| async { panic!("duplicate must not call semantic provider") },
         )
         .await;
     assert_eq!(s.snapshot().unwrap().cards.len(), 1);
@@ -735,7 +735,7 @@ fn timing_intent_routes_do_not_change_routing() {
             )
             .await;
         let semantic = s.next(epoch).unwrap();
-        assert_eq!(semantic.timing.intent_route, "gemini");
+        assert_eq!(semantic.timing.intent_route, "openai");
         assert!(semantic.timing.intent_used && semantic.timing.intent_request_ms >= 0.0);
         s.finish(epoch, semantic, Ok(reply()));
         router
@@ -890,7 +890,7 @@ fn obvious_local_requests_bypass_semantic_provider_even_when_short_or_reassemble
                     &s,
                     epoch,
                     |_| async {
-                        panic!("obvious request must not call Gemini Intent");
+                        panic!("obvious request must not call OpenAI Intent");
                         #[allow(unreachable_code)]
                         Err("unexpected call")
                     },
@@ -919,7 +919,7 @@ fn ambiguous_and_contextual_requests_still_use_semantic_provider() {
                 .process(candidate(1, text, local, 1), &s, epoch, action)
                 .await;
             let job = s.next(epoch).expect("semantic request queued");
-            assert_eq!(job.timing.intent_route, "gemini");
+            assert_eq!(job.timing.intent_route, "openai");
             assert!(job.timing.intent_used);
         }
     });
@@ -1007,7 +1007,7 @@ fn code_partial_failure_retry_preserves_identity_and_clears_draft() {
 }
 
 #[test]
-fn obvious_coding_requests_and_followups_bypass_gemini_intent() {
+fn obvious_coding_requests_and_followups_bypass_openai_intent() {
     tauri::async_runtime::block_on(async {
         let (s, epoch) = service();
         let mut router = worker::Router::default();
@@ -1048,5 +1048,187 @@ fn repeated_coding_followup_is_deduplicated_per_problem_not_across_problems() {
                 .await;
         }
         assert_eq!(s.snapshot().unwrap().cards.len(), 4);
+    });
+}
+
+const LEADERSHIP_A: &str = "Can you give us a specific example of a time when you mentored or developed others, what you did, and what impact your approach had?";
+const LEADERSHIP_B: &str = "Suppose we launch the mentorship program and after three months, participation is high but mentees tell us they are not getting enough value from their mentor relationships. As the mentorship and career development lead, how would you respond?";
+
+#[test]
+fn leadership_requests_survive_semantic_outage_and_queue_once() {
+    tauri::async_runtime::block_on(async {
+        for text in [LEADERSHIP_A, LEADERSHIP_B] {
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            assert!(crate::understanding::candidate::local_question(text, &[]).is_some());
+            assert_eq!(crate::coding::classify(text, false), None);
+            assert_eq!(crate::coding::classify(text, true), None);
+            // Missing upstream local result exercises outage fallback for both.
+            router
+                .process(candidate(1, text, None, 1), &s, epoch, unavailable)
+                .await;
+            router
+                .process(candidate(2, text, None, 1), &s, epoch, unavailable)
+                .await;
+            assert_eq!(s.snapshot().unwrap().cards.len(), 1);
+            let job = s.next(epoch).unwrap();
+            assert_eq!(job.input.cue_kind, "conversation");
+            assert_eq!(job.timing.intent_route, "fallback");
+            assert!(job.timing.intent_used);
+            assert!(
+                job.input.question.contains("mentored")
+                    || job.input.question.contains("mentorship")
+            );
+        }
+    });
+}
+
+#[test]
+fn unsuccessful_candidate_replay_is_reclassified_but_queued_replay_is_not() {
+    tauri::async_runtime::block_on(async {
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        let text = "Please discuss the tradeoffs in this situation.";
+        router
+            .process(candidate(1, text, None, 1), &s, epoch, unavailable)
+            .await;
+        assert!(s.snapshot().unwrap().cards.is_empty());
+        router
+            .process(candidate(2, text, None, 1), &s, epoch, action)
+            .await;
+        assert_eq!(s.snapshot().unwrap().cards.len(), 1);
+        router
+            .process(candidate(3, text, None, 1), &s, epoch, |_| async {
+                panic!("queued replay must be suppressed")
+            })
+            .await;
+        assert_eq!(s.snapshot().unwrap().cards.len(), 1);
+    });
+}
+
+#[test]
+fn degraded_mode_does_not_queue_statements_or_incomplete_questions() {
+    tauri::async_runtime::block_on(async {
+        for text in [
+            "Our mentorship program has high participation.",
+            "Suppose the program is successful.",
+            "Imagine how we improved participation.",
+            "How would you respond to the?",
+            "Can you explain how",
+            "What impact had you",
+            "Tell me about...",
+        ] {
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            assert!(
+                crate::understanding::candidate::local_question(text, &[]).is_none(),
+                "{text}"
+            );
+            router
+                .process(candidate(1, text, None, 1), &s, epoch, unavailable)
+                .await;
+            assert!(s.snapshot().unwrap().cards.is_empty(), "{text}");
+        }
+    });
+}
+
+#[test]
+fn leadership_budget_fallback_and_successful_semantic_rejection_remain_distinct() {
+    tauri::async_runtime::block_on(async {
+        for text in [LEADERSHIP_A, LEADERSHIP_B] {
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            // Meaningful statements consume the existing bounded semantic budget.
+            for id in 0..12 {
+                router
+                    .process(
+                        candidate(
+                            id,
+                            &format!("Participation increased during phase {id}."),
+                            None,
+                            1,
+                        ),
+                        &s,
+                        epoch,
+                        unavailable,
+                    )
+                    .await;
+            }
+            router
+                .process(candidate(20, text, None, 1), &s, epoch, |_| async {
+                    panic!("budget must prevent provider call")
+                })
+                .await;
+            let job = s
+                .next(epoch)
+                .expect("strong local evidence survives exhausted budget");
+            assert_eq!(job.timing.intent_route, "fallback");
+            assert!(!job.timing.intent_used);
+            assert_eq!(s.snapshot().unwrap().cards.len(), 1);
+
+            let (s, epoch) = service();
+            let mut router = worker::Router::default();
+            router
+                .process(candidate(1, text, None, 1), &s, epoch, |_| async {
+                    Ok(intent::IntentResult {
+                        kind: "NOT_ACTIONABLE".into(),
+                        normalized_request: String::new(),
+                        confidence: 0.95,
+                    })
+                })
+                .await;
+            assert!(
+                s.snapshot().unwrap().cards.is_empty(),
+                "successful semantic decision must remain authoritative"
+            );
+        }
+    });
+}
+
+#[test]
+fn intent_failure_categories_are_fixed_and_safe() {
+    assert_eq!(intent::failure_category(429, None), "Intent rate limited");
+    assert_eq!(
+        intent::failure_category(503, Some("RESOURCE_EXHAUSTED")),
+        "Intent rate limited"
+    );
+    assert_eq!(
+        intent::failure_category(503, Some("TIMEOUT")),
+        "Intent timeout"
+    );
+    assert_eq!(
+        intent::failure_category(503, Some("private arbitrary content")),
+        "Intent unavailable"
+    );
+}
+
+#[test]
+fn openai_intent_failure_keeps_conservative_native_fallback() {
+    tauri::async_runtime::block_on(async {
+        for error in [
+            "Intent unavailable",
+            "Intent timeout",
+            "Intent rate limited",
+        ] {
+            for (text, expected) in [
+                (LEADERSHIP_A, 1),
+                (LEADERSHIP_B, 1),
+                ("Please discuss the situation.", 0),
+                ("Participation has increased this quarter.", 0),
+            ] {
+                let (s, epoch) = service();
+                let mut router = worker::Router::default();
+                router
+                    .process(candidate(1, text, None, 1), &s, epoch, |_| async {
+                        Err(error)
+                    })
+                    .await;
+                assert_eq!(s.snapshot().unwrap().cards.len(), expected, "{text}");
+                if let Some(job) = s.next(epoch) {
+                    assert_eq!(job.input.cue_kind, "conversation");
+                    assert_eq!(job.timing.intent_route, "fallback");
+                }
+            }
+        }
     });
 }

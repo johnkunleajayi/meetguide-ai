@@ -44,6 +44,12 @@ pub(super) fn candidate(text: &str, has_context: bool) -> Option<Detection> {
     {
         return None;
     }
+    if let Some(request) = super::assembly::scenario_detection(text) {
+        return Some(Detection {
+            text: text.to_owned(),
+            ..request
+        });
+    }
     let mut tokens = words(text);
     while tokens.first().is_some_and(|word| {
         matches!(
@@ -94,8 +100,22 @@ pub(super) fn candidate(text: &str, has_context: bool) -> Option<Detection> {
                 "on" | "in" | "with" | "for"
             ]
         );
+    // A wh-object can precede its subject and terminal past-tense verb.
+    // This is not the dangling auxiliary in "What impact had you...".
+    let completed_object_clause = tokens.len() >= 10
+        && matches!(
+            &tokens[tokens.len() - 5..],
+            [
+                "what" | "which",
+                _,
+                "your" | "our" | "their" | "this" | "that",
+                _,
+                "had"
+            ]
+        );
     if !short_complete
         && !relative_ending
+        && !completed_object_clause
         && matches!(
             last,
             "the"

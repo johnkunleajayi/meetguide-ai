@@ -25,6 +25,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "SESSION_TTL_SECONDS",
         "LIVE_CUE_ENABLED",
         "GEMINI_INTENT_ENABLED",
+        "INTENT_ENABLED",
         "LIVE_CUE_PROVIDER",
         "LIVE_CUE_MODEL",
         "GEMINI_API_KEY",

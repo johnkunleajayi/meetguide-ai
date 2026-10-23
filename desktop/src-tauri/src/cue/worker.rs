@@ -78,6 +78,9 @@ impl Router {
         let key = format!("{}:{anchor}:{code_anchor}", fingerprint(&c.text));
         if let Some((_, _, card)) = self.seen.iter().find(|(seen, _, _)| *seen == key) {
             let card = *card;
+            crate::timing::emit(
+                serde_json::json!({"stage":"candidate_routing","candidate_id":c.timing.question_id,"local_present":c.local.is_some(),"semantic_attempted":false,"semantic_provider":null,"semantic_outcome":"not_attempted","disposition":"duplicate-suppressed","queue_entry_created":false}),
+            );
             self.remember_turn(c.turn_id, c.text, card, None);
             return;
         }
@@ -122,8 +125,13 @@ impl Router {
         let independent = local_question(&delta, &[]).is_some();
         let semantic = coding.is_none()
             && (local.is_none() || continuation || linked || references || !independent);
+        // Re-evaluate settled request structure only when semantic assistance is
+        // unavailable. This is not a general meaningful-speech-to-question bypass.
+        let fallback_question = local
+            .clone()
+            .or_else(|| local_question(&c.text, &c.context));
         let fallback = || {
-            local.clone().map(|question| IntentResult {
+            fallback_question.clone().map(|question| IntentResult {
                 kind: if continuation && linked {
                     "CONTINUATION"
                 } else {
@@ -151,6 +159,8 @@ impl Router {
             serde_json::json!({"stage":"intent_routing","question_id":question_timing.candidate.question_id,"candidate_id":c.timing.question_id,"at_unix_ms":crate::timing::unix_ms()}),
         );
         let intent_started = Instant::now();
+        let mut semantic_outcome = "not_attempted";
+        let mut degraded = false;
         let result = if semantic {
             self.calls
                 .retain(|at| now.duration_since(*at) < Duration::from_secs(60));
@@ -161,7 +171,7 @@ impl Router {
                 let input = payload(delta.clone(), c.context.clone());
                 if let Some(input) = input {
                     question_timing.intent_used = true;
-                    question_timing.intent_route = "gemini";
+                    question_timing.intent_route = "openai";
                     classify(IntentInput {
                         question_id: question_timing.candidate.question_id.clone(),
                         text: if previous_card.is_some() {
@@ -183,10 +193,26 @@ impl Router {
                     if (result.kind != "CONTINUATION" || continuation)
                         && result.confidence >= 0.82 =>
                 {
+                    semantic_outcome = match result.kind.as_str() {
+                        "NOT_ACTIONABLE" => "not_actionable",
+                        "CONTINUATION" => "continuation",
+                        "FOLLOW_UP" => "follow_up",
+                        _ => "actionable",
+                    };
                     service.notice(epoch, None);
                     Some(result)
                 }
-                _ => {
+                failure => {
+                    semantic_outcome = match failure {
+                        Err("Intent budget") => "budget_limited",
+                        Err("Intent rate limited") => "rate_limited",
+                        Err("Intent timeout") => "timeout",
+                        Err("Invalid intent input") => "invalid_input",
+                        Err(_) => "unavailable",
+                        Ok(ref result) if result.confidence < 0.82 => "low_confidence",
+                        Ok(_) => "ineligible_continuation",
+                    };
+                    degraded = true;
                     question_timing.intent_route = "fallback";
                     service.notice(epoch, Some("Semantic understanding is unavailable. Local question detection remains active."));
                     fallback()
@@ -203,6 +229,7 @@ impl Router {
         question_timing.detected_at = Instant::now();
         let mut card = previous_card;
         let mut question = None;
+        let mut enqueued = false;
         if let Some(mut result) = result {
             // Clear grammatical extensions of an existing assembled request
             // remain one logical item even if the provider calls them actionable.
@@ -228,10 +255,25 @@ impl Router {
                         input,
                         question_timing.clone(),
                     );
+                    enqueued = card.is_some();
                 }
             }
         }
+        crate::timing::emit(serde_json::json!({
+            "stage":"candidate_routing", "candidate_id":c.timing.question_id,
+            "question_id":question_timing.candidate.question_id,
+            "local_present":local.is_some(), "strong_local_evidence":fallback_question.is_some(), "turn_id":c.turn_id, "revision":c.revision, "semantic_attempted":question_timing.intent_used,
+            "semantic_provider":if question_timing.intent_used { Some("openai") } else { None },
+            "semantic_outcome":semantic_outcome,
+            "disposition":if enqueued { if degraded { "degraded-fallback" } else { "queued" } } else { "rejected" },
+            "queue_entry_created":enqueued && previous_card != card
+        }));
         self.remember_turn(c.turn_id, c.text.clone(), card, question);
+        // Only successful logical requests earn replay suppression. A transient
+        // classification failure must remain eligible for a later replay.
+        if !enqueued {
+            return;
+        }
         for alias in keys(&c.text)
             .into_iter()
             .chain(std::iter::once(fingerprint(&c.text)))

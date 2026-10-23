@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -28,7 +28,10 @@ class Settings(BaseSettings):
 
     context_storage_dir: Path = Field(default=ENV_FILE.parent / ".data" / "documents", repr=False)
 
-    gemini_intent_enabled: bool = True
+    intent_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INTENT_ENABLED", "GEMINI_INTENT_ENABLED", "intent_enabled"),
+    )
     live_cue_enabled: bool = False
     live_cue_provider: Literal["gemini", "openai"] = "gemini"
     gemini_api_key: SecretStr | None = Field(default=None, repr=False)

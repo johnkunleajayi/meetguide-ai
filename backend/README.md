@@ -324,15 +324,15 @@ Application state remains in memory. Request bodies, provider errors, prompts an
 Automated tests use fake providers and httpx MockTransport, never live Google/Gemini or real document contents. No live provider or acoustic answer-quality test was performed during implementation.
 
 
-## Gemini semantic intent
+## OpenAI semantic intent
 
-`POST /api/intent/classify` uses the existing native opaque bearer-session authentication and rejects browser Origin requests. It is a separate replaceable `IntentProvider` boundary; the first adapter is `GeminiIntentProvider`. It classifies transcript intent only, never writes a Live Cue answer or retrieves documents.
+`POST /api/intent/classify` uses the existing native opaque bearer-session authentication and rejects browser Origin requests. It is a separate replaceable `IntentProvider` boundary; the active adapter is `OpenAIIntentProvider`. It classifies transcript intent only, never writes a Live Cue answer or retrieves documents.
 
-Optional `GEMINI_INTENT_ENABLED` defaults to `true`; the existing `LIVE_CUE_ENABLED`, `GEMINI_API_KEY` and `LIVE_CUE_MODEL` must also be configured. This reuses the current backend Gemini setup; no new credentials or provider installation is required. Real `.env` files are not modified by this milestone. Set the optional flag to false to test native deterministic fallback. Provider keys remain backend-only.
+Optional `INTENT_ENABLED` defaults to `true`; the existing `LIVE_CUE_ENABLED`, `OPENAI_API_KEY` and `OPENAI_LIVE_CUE_MODEL` must also be configured. The model is the same configured GPT-6 Luna used for Live Cue, with reasoning effort `none`. `GEMINI_INTENT_ENABLED` remains accepted as a legacy enable/disable alias; `INTENT_ENABLED` takes precedence. Gemini transcription is unchanged. There is no semantic fallback to Gemini. Real `.env` files are not modified by this milestone. Set the optional flag to false to test native deterministic fallback. Provider keys remain backend-only.
 
 Input: candidate text (1,600 characters), up to six transcript turns (4,000 total characters), an optional prior request (1,600 characters), and an explicit continuation-eligibility flag. No résumé/context-library excerpts, cue-answer history or entire session is sent. Output: `kind` (`ACTIONABLE_REQUEST`, `CONTINUATION`, `FOLLOW_UP`, `NOT_ACTIONABLE`), `normalized_request`, `confidence`. The prompt forbids answering, inventing facts or adding requirements. Continuations across an ineligible boundary are rejected.
 
-The classifier requests at most 384 output tokens, has an 8-second deadline, one in-flight call per account / four globally per process, a 32 KiB input cap and the existing bounded Gemini JSON transport. Error responses are sanitized and no-store; no transcript or key logging is added. Native routing deduplicates candidates and applies an additional session call budget. Unavailability, quota and malformed output cause deterministic fallback rather than stopping transcription. Existing answer retrieval/generation/grounding remain unchanged.
+The classifier requests at most 384 output tokens, has an 8-second deadline, one in-flight call per account / four globally per process, a 32 KiB input cap and a bounded HTTPX Responses API request (`POST /v1/responses`, strict JSON schema, `store=false`, no automatic retries). Error responses are sanitized and no-store; no transcript or key logging is added. Native routing deduplicates candidates and applies an additional session call budget. Unavailability, quota and malformed output cause deterministic fallback rather than stopping transcription. Existing answer retrieval/generation/grounding remain unchanged.
 
 For a safe manual test, use a fictional context document and synthetic audio in the development desktop app. Ask the split Salesforce integration request, then “How did you undo” / “the Salesforce migration?” without removing a card. Both cards should remain. Ask three distinct questions while an answer is preparing, remove the middle completed card, then ask Q4. Stop/restart and sign out to verify the feed clears. The installed beta is unchanged; no installer is rebuilt here.
 
@@ -405,7 +405,7 @@ Gemini Live Cue adapter; Gemini transcription and Intent are unchanged.
 
 Native local routing uses a small request-grammar gate: construction verbs plus programming
 objects/languages, or algorithm operations on data structures. Obvious code requests bypass
-Gemini Intent. Referential optimization/space/language follow-ups require a current coding
+OpenAI Intent. Referential optimization/space/language follow-ups require a current coding
 problem. Generic "Why?"/"Can you explain that?" and personal-experience questions keep the
 normal route. A normal actionable question ends the coding routing chain. This conservative
 first gate does not promise to recognize every programming paraphrase.

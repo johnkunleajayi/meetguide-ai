@@ -40,9 +40,21 @@ pub async fn classify(input: IntentInput) -> Result<IntentResult, &'static str> 
         .json(&input)
         .send()
         .await
-        .map_err(|_| "Intent unavailable")?;
+        .map_err(|error| {
+            if error.is_timeout() {
+                "Intent timeout"
+            } else {
+                "Intent unavailable"
+            }
+        })?;
     if !response.status().is_success() {
-        return Err("Intent unavailable");
+        return Err(failure_category(
+            response.status().as_u16(),
+            response
+                .headers()
+                .get("X-MeetGuide-Intent-Failure")
+                .and_then(|v| v.to_str().ok()),
+        ));
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| "Intent unavailable")? {
@@ -64,4 +76,13 @@ pub async fn classify(input: IntentInput) -> Result<IntentResult, &'static str> 
         return Err("Intent unavailable");
     }
     Ok(result)
+}
+
+// Only fixed categories cross the diagnostic boundary; provider bodies are ignored.
+pub(super) fn failure_category(status: u16, reason: Option<&str>) -> &'static str {
+    match (status, reason) {
+        (429, _) | (_, Some("RESOURCE_EXHAUSTED")) => "Intent rate limited",
+        (408 | 504, _) | (_, Some("TIMEOUT")) => "Intent timeout",
+        _ => "Intent unavailable",
+    }
 }

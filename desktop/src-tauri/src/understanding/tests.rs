@@ -348,3 +348,23 @@ fn repeated_why_is_suppressed_until_a_different_answer_supplies_context() {
     say(&mut e, Speaker::Them, 3, "Why?", 14000);
     assert!(e.tick(15200));
 }
+
+#[test]
+fn scenario_and_interview_requests_preserve_complete_context() {
+    for text in [
+        "Can you give us a specific example of a time when you mentored or developed others, what you did, and what impact your approach had?",
+        "Suppose participation is high. As the lead, how would you respond?",
+        "Imagine the launch fails, what would you do if funding stopped?",
+        "Tell me about a time you developed others.",
+        "Walk me through your mentoring approach.",
+        "Describe your leadership approach.",
+        "What would you do if participation dropped?",
+        "How would you respond to unhappy mentees?",
+    ] {
+        let mut e = engine();
+        say(&mut e, Speaker::Them, 1, text, 0);
+        assert!(e.tick(1200), "{text}");
+        assert_eq!(e.snapshot.events.len(), 1);
+        assert_eq!(e.snapshot.events[0].text, text);
+    }
+}

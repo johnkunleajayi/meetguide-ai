@@ -8,7 +8,7 @@ from app.core.timing import Timing
 from app.cues.api import cue_user
 from app.cues.provider import ProviderUnavailable
 from app.intent.domain import IntentInput, IntentResult
-from app.intent.gemini import GeminiIntentProvider
+from app.intent.openai import OpenAIIntentProvider
 from app.intent.provider import IntentProvider
 
 router = APIRouter(prefix="/intent", tags=["intent"])
@@ -16,15 +16,11 @@ router = APIRouter(prefix="/intent", tags=["intent"])
 
 def get_intent_provider(request: Request) -> IntentProvider:
     settings = request.app.state.settings
-    if (
-        not settings.gemini_intent_enabled
-        or not settings.live_cue_enabled
-        or not settings.gemini_api_key
-    ):
+    if not settings.intent_enabled or not settings.live_cue_enabled or not settings.openai_api_key:
         raise HTTPException(
             503, "Semantic intent is unavailable; use local detection", headers=NO_STORE
         )
-    return GeminiIntentProvider(settings)
+    return OpenAIIntentProvider(settings)
 
 
 @router.post("/classify", response_model=IntentResult)
@@ -50,7 +46,9 @@ async def classify(request: Request, user=Depends(cue_user), provider=Depends(ge
         enabled=request.app.state.settings.app_env != "production",
     )
     timing.values.update(
-        intent_route="gemini",
+        intent_route="openai",
+        provider="openai",
+        model=request.app.state.settings.openai_live_cue_model,
         question_char_count=len(payload.text),
         conversation_turn_count=len(payload.context),
         conversation_context_char_count=sum(len(turn.text) for turn in payload.context),
@@ -73,7 +71,12 @@ async def classify(request: Request, user=Depends(cue_user), provider=Depends(ge
         )
         timing.values["provider_http_status"] = getattr(error, "status", None)
         raise HTTPException(
-            503, "Semantic intent is unavailable; use local detection", headers=NO_STORE
+            503,
+            "Semantic intent is unavailable; use local detection",
+            headers={
+                **NO_STORE,
+                "X-MeetGuide-Intent-Failure": timing.values["provider_error_type"],
+            },
         ) from None
     finally:
         timing.finish()

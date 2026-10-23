@@ -92,8 +92,30 @@ fn join(parts: &[&str]) -> String {
     result
 }
 
+// Scenario framing is retained only when it contains a direct interrogative clause.
+// A scenario statement alone (or reported "how we ...") is not actionable.
+pub(super) fn scenario_detection(text: &str) -> Option<super::domain::Detection> {
+    let tokens = words(text);
+    if !tokens
+        .first()
+        .is_some_and(|w| matches!(w.as_str(), "suppose" | "imagine"))
+    {
+        return None;
+    }
+    tokens.windows(3).enumerate().find_map(|(i, w)| {
+        (matches!(w[0].as_str(), "what" | "how" | "why" | "which")
+            && matches!(w[1].as_str(), "would" | "will" | "could" | "should" | "do")
+            && w[2] == "you")
+            .then_some(())
+            .and_then(|_| candidate(&tokens[i..].join(" "), true))
+    })
+}
+
 // Keep the request and its qualifiers/questions, excluding preceding narrative setup.
 pub(super) fn effective_request(text: &str) -> Option<String> {
+    if scenario_detection(text).is_some() {
+        return Some(text.trim().to_owned());
+    }
     let parts = sentences(text);
     let start = parts.iter().position(|part| request_lead(part))?;
     Some(join(&parts[start..]))
