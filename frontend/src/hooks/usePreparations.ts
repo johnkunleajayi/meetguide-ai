@@ -7,7 +7,7 @@ export function usePreparations() {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    listPreparations(controller.signal).then(setItems).catch(() => { if (!controller.signal.aborted) setError("Unable to load preparations. Check the backend migrations, then refresh."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    listPreparations(controller.signal).then(setItems).catch(() => { if (!controller.signal.aborted) setError("Unable to load your preparations. Refresh the page to try again."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
   async function save(input: PreparationInput, id?: string) {

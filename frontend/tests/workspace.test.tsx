@@ -83,7 +83,7 @@ it("keeps long objectives and document names intact in preparation and summary",
  const summary = await screen.findByRole("region", { name: "Client Meeting" }, { timeout: 5000 });
  expect(within(summary).getByText(objective)).toBeTruthy();
  expect(within(summary).getByRole("button", { name: "Save & use preparation" })).toBeTruthy();
- const documentLabel = await screen.findByText(name);
+ const documentLabel = await within(screen.getByRole("list", { name: "Reusable context documents" })).findByText(name);
  expect(documentLabel.closest("label")?.querySelector("input[type=checkbox]")).toBeTruthy();
  expect((screen.getByLabelText("2. What would you like to accomplish?") as HTMLTextAreaElement).value).toBe(objective);
 });
@@ -98,4 +98,45 @@ it("saves optional technical interview preferences without requiring documents",
  await screen.findByText(/Preparation saved and selected/);
  const saved = fetch.mock.calls.find(([url, opt]) => url.endsWith("/preparations") && opt?.method === "POST")!;
  expect(JSON.parse(saved[1]!.body as string)).toEqual(expect.objectContaining({ purpose: "job_interview", technical_interview: true, coding_language: "python", documents: [] }));
+});
+
+
+it("distinguishes a saved preparation from unsaved edits and reflects the review state", async () => {
+ show([doc], [prep]);
+ const objective = await screen.findByLabelText("2. What would you like to accomplish?");
+ await waitFor(() => expect((objective as HTMLTextAreaElement).value).toBe(prep.objective));
+ expect(screen.getByText("Saved & selected for Desktop")).toBeTruthy();
+ fireEvent.change(objective, { target: { value: "Updated client discussion objective" } });
+ expect(screen.getByText("Unsaved changes")).toBeTruthy();
+ const summary = screen.getByRole("region", { name: "Client Meeting" });
+ expect(within(summary).getByText("Updated client discussion objective")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Save & use preparation" }));
+ await screen.findByText(/Preparation saved and selected/);
+ expect(screen.getByText("Saved & selected for Desktop")).toBeTruthy();
+});
+
+it("browses selected documents without changing reusable documents or making selection requests", async () => {
+ const fetch = show(); await choose();
+ fireEvent.click(screen.getByRole("button", { name: /Selected 0/ }));
+ expect(screen.getByText("Choose what comes with you.")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Browse documents" }));
+ fireEvent.click(screen.getByRole("checkbox"));
+ fireEvent.click(screen.getByRole("button", { name: /Selected 1/ }));
+ expect(within(screen.getByRole("list", { name: "Reusable context documents" })).getByText(doc.name)).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Remove from preparation" }));
+ expect(screen.getByText("Choose what comes with you.")).toBeTruthy();
+ expect(fetch.mock.calls.some(([,options]) => options?.method === "DELETE")).toBe(false);
+});
+
+it("switches between saved preparations and starts a clean draft without activating implicitly", async () => {
+ const other = { ...prep, id: "p2", purpose: "sales_meeting", objective: "Fictional discovery conversation", documents: [], active: false };
+ const fetch = show([doc], [prep, other]);
+ await waitFor(() => expect((screen.getByLabelText("2. What would you like to accomplish?") as HTMLTextAreaElement).value).toBe(prep.objective));
+ fireEvent.change(screen.getByLabelText("Saved preparations"), { target: { value: "p2" } });
+ expect((screen.getByRole("radio", { name: "Sales Meeting" }) as HTMLInputElement).checked).toBe(true);
+ expect(screen.getByText("0 context documents selected · General assistance")).toBeTruthy();
+ expect(fetch.mock.calls.some(([url]) => url.endsWith("/activate"))).toBe(false);
+ fireEvent.click(screen.getByRole("button", { name: "New", exact: true }));
+ expect((screen.getByLabelText("2. What would you like to accomplish?") as HTMLTextAreaElement).value).toBe("");
+ expect(screen.getByRole("button", { name: "Save & use preparation" }).hasAttribute("disabled")).toBe(true);
 });

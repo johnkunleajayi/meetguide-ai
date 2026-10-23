@@ -15,7 +15,7 @@ export interface Preparation extends PreparationInput { id: string; active: bool
 const API = "http://127.0.0.1:8000/api/preparations";
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(API + path, { ...options, credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json", ...options.headers } });
-  if (!response.ok) throw new Error(response.status === 401 ? "Your session expired. Please sign in again." : "Unable to save or load preparation. Check the backend and retry.");
+  if (!response.ok) throw new Error(response.status === 401 ? "Your session expired. Please sign in again." : "Unable to save or load this preparation. Please try again.");
   return response;
 }
 export const listPreparations = async (signal?: AbortSignal): Promise<Preparation[]> => (await request("", { signal })).json();

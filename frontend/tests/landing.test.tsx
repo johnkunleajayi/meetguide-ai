@@ -8,8 +8,7 @@ import { LandingMotion, useLandingMotion } from "../src/components/landing/motio
 import { HeroScene, heroAnswer } from "../src/components/landing/HeroScene";
 import { CodeAssistDemo, codingQuestions } from "../src/components/landing/CodeAssistDemo";
 import { PrivateDisplayDemo } from "../src/components/landing/PrivateDisplayDemo";
-import { ConversationOrbit } from "../src/components/landing/ConversationOrbit";
-import { HowItWorks } from "../src/components/landing/HowItWorks";
+import { PreparationJourney } from "../src/components/landing/PreparationJourney";
 import { AppRoutes } from "../src/App";
 import type { ReactNode } from "react";
 
@@ -37,17 +36,17 @@ it("plays the hero through listening, detection, preparing, streaming and ready,
   const view = show(<HeroScene />);
   const answer = () => view.container.querySelector(".mg-live-answer")!;
   expect(answer().getAttribute("data-show")).toBe("false");
-  act(() => vi.advanceTimersByTime(2500));
+  act(() => vi.advanceTimersByTime(3000));
   expect(view.container.querySelector(".mg-detected")?.getAttribute("data-show")).toBe("true");
   act(() => vi.advanceTimersByTime(1000));
   expect(answer().textContent).toContain("Preparing");
   act(() => vi.advanceTimersByTime(1500));
   expect(answer().textContent).toContain("Responding");
   expect(answer().textContent).not.toContain(heroAnswer);
-  act(() => vi.advanceTimersByTime(4800));
+  act(() => vi.advanceTimersByTime(5000));
   expect(answer().textContent).toContain("Ready to speak");
   expect(answer().textContent).toContain(heroAnswer);
-  act(() => vi.advanceTimersByTime(1700));
+  act(() => vi.advanceTimersByTime(3500));
   expect(answer().getAttribute("data-show")).toBe("false");
   expect(fetch).not.toHaveBeenCalled();
 });
@@ -111,11 +110,11 @@ it("demonstrates Private Display without changing real window protection or maki
 
 it("renders complete meaningful demo states and no timers under reduced motion", () => {
   media(true); vi.useFakeTimers();
-  const view = show(<><HeroScene /><CodeAssistDemo /><PrivateDisplayDemo /><ConversationOrbit /><HowItWorks /></>);
+  const view = show(<><HeroScene /><CodeAssistDemo /><PrivateDisplayDemo /><PreparationJourney /></>);
   expect(view.container.querySelector(".mg-live-answer")?.textContent).toContain(heroAnswer);
   expect(view.container.querySelector(".mg-code-state")?.textContent).toContain("Ready");
   expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
-  expect(view.container.querySelectorAll(".mg-orbital-path")).toHaveLength(8);
+  expect(screen.getAllByRole("tab")).toHaveLength(5);
   expect(vi.getTimerCount()).toBe(0);
   fireEvent.click(screen.getByRole("button", { name: codingQuestions[0], exact: true }));
   expect(view.container.querySelector(".mg-language")?.textContent).toBe("Python");
@@ -149,7 +148,7 @@ it("renders the full public story, local photography and valid navigation withou
   const fetch = vi.fn().mockResolvedValue({ status: 401, ok: false }); vi.stubGlobal("fetch", fetch);
   const view = render(<MemoryRouter><AppRoutes /></MemoryRouter>);
   await screen.findByRole("link", { name: "Sign in" });
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Be present in the conversation.");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Bring your best.To every conversation.");
   for (const id of ["product", "how-it-works", "code-assist", "private-display", "use-cases", "privacy", "closing-title"]) expect(document.getElementById(id)).toBeTruthy();
   expect(view.container.textContent).not.toMatch(/Salesforce|\bApex\b|John|Valon/i);
   expect(view.container.textContent).not.toMatch(/Unsplash|Pexels|image credits|photo credit/i);
@@ -175,14 +174,18 @@ it("renders the full public story, local photography and valid navigation withou
   expect(screen.getByRole("button", { name: "Open navigation" }).getAttribute("aria-expanded")).toBe("false");
 });
 
-it("keeps the orbit light, supplies CSS motion and has explicit mobile/reduced-motion layouts", () => {
+it("keeps product storytelling keyboard accessible and meaningful without motion", () => {
   const css = readFileSync(`${frontendDir}/src/landing.css`, "utf8");
-  expect(css).toContain("@keyframes mg-orbit");
-  expect(css).toContain("@keyframes mg-counter-orbit");
-  expect(css).toContain("@keyframes mg-marquee");
   expect(css).toContain("prefers-reduced-motion:reduce");
   expect(css).toContain("max-width:360px");
-  expect(css).toContain(".public-site[data-motion=\"paused\"] :is(.mg-doc-line,.mg-code-output)");
-  const view = show(<ConversationOrbit />);
-  expect(view.container.querySelector(".mg-orbit-section")?.classList.contains("mg-light")).toBe(true);
+  const view = show(<PreparationJourney />);
+  for (const label of ["Prepare", "Listen", "Understand", "Retrieve", "Respond"]) {
+    const tab = screen.getByRole("tab", { name: new RegExp(label) });
+    fireEvent.click(tab);
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(tab.id);
+  }
+  fireEvent.keyDown(screen.getByRole("tab", { name: /Respond/ }), { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: /Prepare/ }).getAttribute("aria-selected")).toBe("true");
+  expect(view.container.textContent).toContain("Agree the next project milestone.");
 });

@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); sessionStorage.clear(); loca
 
 it("keeps / public when signed out, with marketing and no Context Library requests", async () => {
   const fetch = show("/", false);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Be present");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Bring your best");
   expect((await screen.findByRole("link", { name: "Sign in" })).getAttribute("href")).toBe(GOOGLE_LOGIN_URL);
   expect(within(screen.getByRole("banner")).getByRole("link", { name: "Get MeetGuide", exact: true }).getAttribute("href")).toBe(GOOGLE_LOGIN_URL);
   expect(screen.queryByRole("heading", { name: "What are you preparing for?" })).toBeNull();
