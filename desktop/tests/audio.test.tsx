@@ -3,7 +3,6 @@ vi.mock("../src/lib/transcription", () => ({ readTranscript: vi.fn(async () => n
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AudioSession } from "../src/components/AudioSession";
-import { PrivateDisplay } from "../src/components/PrivateDisplay";
 import * as display from "../src/lib/privateDisplay";
 vi.mock("../src/lib/privateDisplay", () => ({ privateDisplayAvailable: vi.fn(() => true), readPrivateDisplay: vi.fn(), setPrivateDisplay: vi.fn(), subscribePrivateDisplay: vi.fn(async () => () => {}) }));
 import * as audio from "../src/lib/audio";
@@ -31,6 +30,7 @@ it("starts loopback, shows RMS activity, stops and restarts", async () => {
   const button = start(); fireEvent.click(button); fireEvent.click(button);
   await screen.findByText("Listening"); expect(audio.startAudio).toHaveBeenCalledOnce();
   expect(audio.startAudio).toHaveBeenCalledWith({ mode: "system", systemDeviceId: null, microphoneDeviceId: null }, "p1", "revision-1");
+  fireEvent.click(screen.getByText("Audio activity"));
   expect(Number(screen.getByRole("meter", { name: "System Audio activity" }).getAttribute("value"))).toBeCloseTo(66.6667, 3);
   fireEvent.click(screen.getByText("Stop Session")); await ready(); expect(screen.queryByRole("meter")).toBeNull();
   fireEvent.click(start()); await screen.findByText("Listening"); expect(audio.startAudio).toHaveBeenCalledTimes(2);
@@ -38,24 +38,25 @@ it("starts loopback, shows RMS activity, stops and restarts", async () => {
 it("supports both streams and selected devices", async () => {
   vi.mocked(audio.startAudio).mockResolvedValue({ ...listening, microphone: meter });
   render(<AudioSession authenticated />); await ready();
-  fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "both" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Both" }));
   fireEvent.change(screen.getByLabelText("Playback device"), { target: { value: "speakers" } });
   fireEvent.change(screen.getByLabelText("Microphone device"), { target: { value: "mic" } });
   fireEvent.click(start()); await screen.findByText("Listening");
   expect(audio.startAudio).toHaveBeenCalledWith({ mode: "both", systemDeviceId: "speakers", microphoneDeviceId: "mic" }, "p1", "revision-1");
+  fireEvent.click(screen.getByText("Audio activity"));
   expect(screen.getByRole("meter", { name: "Microphone activity" })).toBeTruthy();
 });
 it("supports microphone only", async () => {
   vi.mocked(audio.startAudio).mockResolvedValue({ ...listening, system: null, microphone: meter });
   render(<AudioSession authenticated />); await ready();
-  fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "microphone" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Microphone" }));
   expect(screen.queryByLabelText("Playback device")).toBeNull(); fireEvent.click(start()); await screen.findByText("Listening");
   expect(audio.startAudio).toHaveBeenCalledWith({ mode: "microphone", systemDeviceId: null, microphoneDeviceId: null }, "p1", "revision-1");
 });
 it("handles missing microphone and refresh recovery", async () => {
   vi.mocked(audio.listAudioDevices).mockResolvedValueOnce({ ...devices, microphones: [] });
   render(<AudioSession authenticated />); await ready();
-  fireEvent.change(screen.getByLabelText("Audio source"), { target: { value: "both" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Both" }));
   expect(start().disabled).toBe(true); expect(screen.getByRole("alert").textContent).toContain("microphone");
   fireEvent.click(screen.getByText("Refresh devices")); await ready();
 });
@@ -95,7 +96,7 @@ it("changing Private Display leaves live audio and Stop Session working", async 
   vi.mocked(display.subscribePrivateDisplay).mockResolvedValue(() => {});
   vi.mocked(display.readPrivateDisplay).mockResolvedValue({ state: "on", requestedEnabled: true, message: null, revision: 1 });
   vi.mocked(display.setPrivateDisplay).mockResolvedValue({ state: "off", requestedEnabled: false, message: null, revision: 2 });
-  render(<><PrivateDisplay /><AudioSession authenticated /></>);
+  render(<AudioSession authenticated />);
   await ready();
   fireEvent.click(start());
   await screen.findByText("Listening");
@@ -119,4 +120,22 @@ it("keeps Stop visible if authentication disappears during startup and cleanup f
   expect((await screen.findByRole("alert")).textContent).toContain("Unable to stop capture");
   expect((screen.getByRole("button", { name: "Stop Session" }) as HTMLButtonElement).disabled).toBe(false);
   expect(screen.queryByRole("button", { name: "Start Session" })).toBeNull();
+});
+
+
+it("keeps Both source identity clear and secondary devices available before starting", async () => {
+  render(<AudioSession authenticated />); await ready();
+  fireEvent.click(screen.getByRole("radio", { name: "Both" }));
+  expect((screen.getByRole("radio", { name: "Both" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByText(/Both sides stay distinct/)).toBeTruthy();
+  const details = screen.getByText("Devices").closest("details")!;
+  expect(details.open).toBe(false);
+  fireEvent.click(screen.getByText("Devices"));
+  expect(screen.getByLabelText("Playback device")).toBeTruthy();
+  expect(screen.getByLabelText("Microphone device")).toBeTruthy();
+  expect(audio.startAudio).not.toHaveBeenCalled();
+  fireEvent.click(start()); await screen.findByText("Following Them + You");
+  expect(screen.getByRole("radio", { name: "Both" }).matches(":disabled")).toBe(true);
+  expect(screen.queryByText("Change preparation")).toBeNull();
+  expect(screen.getByText("Fixed for this session")).toBeTruthy();
 });

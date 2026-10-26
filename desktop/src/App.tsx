@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { AudioSession } from "./components/AudioSession";
 import { DesktopAuth } from "./components/DesktopAuth";
-import { PrivateDisplay } from "./components/PrivateDisplay";
+
 import { useTheme } from "./hooks/useTheme";
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const [authenticated, setAuthenticated] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
   return (
-    <div className="desktop-shell">
+    <div className="desktop-shell" data-authenticated={authenticated}>
+      <a className="skip-link" href="#main">Skip to conversation workspace</a>
       <header className="shell-header">
         <span className="wordmark">
           <svg
@@ -61,17 +62,14 @@ export default function App() {
           )}
         </button>
       </header>
-      <main>
-        <p className="eyebrow">DESKTOP COMPANION</p>
-        <h1>MeetGuide AI</h1>
-        <p className="tagline">Your real-time AI meeting assistant.</p>
-        <DesktopAuth onAuthenticatedChange={setAuthenticated} sessionBusy={sessionBusy} />
-        <PrivateDisplay />
+      <div className="account-toolbar"><span>DESKTOP COMPANION</span><DesktopAuth onAuthenticatedChange={setAuthenticated} sessionBusy={sessionBusy} /></div>
+      <main id="main" tabIndex={-1}>
+        {!authenticated && <section className="welcome-panel"><p className="eyebrow">PREPARE ON THE WEB. BE PRESENT HERE.</p><h1>Your conversation,<br />with context.</h1><p>Your real-time AI meeting assistant.</p><span>Sign in with the same account you use in your web workspace. Review your preparation, then start when you're ready.</span></section>}
         <AudioSession authenticated={authenticated} onBusyChange={setSessionBusy} />
       </main>
       <footer>
         <span>MeetGuide AI</span>
-        <span>Desktop foundation</span>
+        <span>Live conversation stays session-only</span>
       </footer>
     </div>
   );

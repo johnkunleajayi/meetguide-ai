@@ -17,7 +17,7 @@ export function DesktopAuth({ onAuthenticatedChange, sessionBusy = false }: { on
     restoreAuth().then((profile) => {
       if (active) { setUser(profile); setStatus(profile ? "signed-in" : "signed-out"); }
     }).catch(() => {
-      if (active) { setStatus("error"); setError("Unable to restore your session. Check the backend connection and Windows credential access, then retry."); }
+      if (active) { setStatus("error"); setError("Unable to restore your session. Check your connection and try again."); }
     });
     return () => { active = false; };
   }, [attempt]);
@@ -54,9 +54,9 @@ export function DesktopAuth({ onAuthenticatedChange, sessionBusy = false }: { on
   }
 
   const label = user?.name?.trim() || user?.email || "";
-  return <section className="auth-panel" aria-label="MeetGuide account">
+  return <section className="auth-panel" data-state={status} aria-label="MeetGuide account">
     {status === "checking" && <p className="auth-note" role="status">Checking your account…</p>}
-    {status === "browser-preview" && <p className="auth-note">Open the Tauri desktop app to sign in securely.</p>}
+    {status === "browser-preview" && <p className="auth-note">Open the installed MeetGuide desktop app to sign in securely.</p>}
     {status === "signed-out" && <button className="auth-button auth-primary" onClick={startLogin}>Sign in with Google</button>}
     {status === "signing-in" && <>
       <p className="auth-note" role="status">Complete sign-in in your browser, then return here.</p>

@@ -1,4 +1,5 @@
-import { CodeAssist } from "./CodeAssist";
+import { CueCard, primaryCueId } from "./CueCard";
+import { DesktopIcon } from "./DesktopIcon";
 import { useEffect, useRef, useState } from "react";
 import { clearCue, prepareCue, readCue, subscribeCue, type CueSnapshot } from "../lib/cue";
 
@@ -77,27 +78,16 @@ export function LiveCue({ sessionId, active }: { sessionId: number; active: bool
     try { await prepareCue(sessionId, id, true); setError(null); }
     catch { setError("Unable to retry this answer. Please retry."); }
   }
-  return <section aria-label="Live Cue feed" className="cue-feed">
-    <div className="live-cue-heading"><h3>Live Cues</h3><span>Session only</span></div>
-    {current?.notice && <p className="transcript-footnote" role="status">{current.notice}</p>}
+  return <section aria-label="Live Cue feed" className="cue-feed" id="live-cues">
+    <div className="cue-feed-heading"><div><span className="eyebrow">WORDS FOR THE MOMENT</span><h2>Live Cues</h2></div><span>Session only</span></div>
+    {current?.notice && <p className="cue-notice" role="status">{current.notice.startsWith("Semantic understanding is unavailable.") ? "Conversation understanding is limited. Listening and question detection remain active." : current.notice}</p>}
     {error && <p role="alert">{error}</p>}
     <div className="cue-feed-scroll" ref={scroll} tabIndex={0} aria-label="Session cue cards" onScroll={() => {
       const element = scroll.current;
       if (element) { following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48; if (following.current) setUnread(false); }
     }}>
-      {!current?.cards.length && <p className="transcript-footnote">Listening for the next question.</p>}
-      {current?.cards.map(card => <article className={`live-cue${card.cueKind === "code" ? " code-assist-card" : ""}`} key={card.id} aria-label={`Cue ${card.id}`}>
-        <div className="live-cue-heading"><h3>{card.cueKind === "code" ? "Code Assist" : "Question"}</h3><div className="live-cue-actions">
-          <span>{card.status === "ready" ? (card.cueKind === "code" ? "Ready" : "Ready to speak") : card.status === "queued" ? "Queued" : card.status === "failed" ? "Answer unavailable" : card.status === "responding" ? "Responding" : "Preparing answer…"}</span>
-          {card.answer && <button className="audio-refresh" aria-label={`Remove cue ${card.id}`} disabled={removing === card.id} onClick={() => void remove(card.id)}>Remove</button>}
-        </div></div>
-        <p className="live-cue-question">{card.question}</p>
-        {card.answer ? <>
-          {card.codeAssist ? <CodeAssist value={card.codeAssist} /> : <div className="live-cue-answer">{card.answer.split(/\n\s*\n/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>}
-          <p className="transcript-footnote">{card.status !== "ready" ? "Draft · final grounding checks pending" : card.grounding === "document_supported" ? `Uses ${card.sourceCount} document excerpt${card.sourceCount === 1 ? "" : "s"}` : "General approach · No personal experience claimed"}</p>
-        </> : card.status === "failed" ? <><p role="alert">{card.error}</p><button className="audio-refresh" onClick={() => void retry(card.id)}>Retry answer</button></> : <p className="transcript-footnote">{card.status === "queued" ? "Your question is waiting for the current answer." : "Preparing answer…"}</p>}
-        {card.answer && card.status === "failed" && <><p role="alert">{card.error}</p><button className="audio-refresh" onClick={() => void retry(card.id)}>Retry answer</button></>}
-      </article>)}
+      {!current?.cards.length && <div className="cue-empty"><DesktopIcon name="audio" size={32} /><h3>Stay with the conversation.</h3><p>Listening for the next question.</p><span>Your guidance will appear here. You decide what to say.</span></div>}
+      {current?.cards.map(card => <CueCard key={card.id} card={card} current={card.id === primaryCueId(current.cards)} removing={removing === card.id} onRemove={() => void remove(card.id)} onRetry={() => void retry(card.id)} />)}
     </div>
     {unread && <button className="audio-refresh" onClick={() => { following.current = true; setUnread(false); if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }}>New cue · View latest</button>}
   </section>;

@@ -170,3 +170,26 @@ it("removes only the selected Code Assist card and retries a failed code request
   fireEvent.click(screen.getByRole("button", { name: "Retry answer" }));
   await waitFor(() => expect(prepareCue).toHaveBeenCalledWith(1, 2, true));
 });
+
+
+it("emphasizes the active cue without reordering retained or queued questions", async () => {
+  vi.mocked(readCue).mockResolvedValue(snapshot([card(1), { ...card(2), status: "responding", answer: "I am working through the response." }, { ...card(3), status: "queued", answer: null }]));
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText("I am working through the response.");
+  expect(screen.getByLabelText("Cue 2").getAttribute("data-current")).toBe("true");
+  expect(screen.getByLabelText("Cue 3").getAttribute("data-current")).toBe("false");
+  expect(screen.getAllByRole("article").map(node => node.getAttribute("aria-label"))).toEqual(["Cue 1", "Cue 2", "Cue 3"]);
+  expect(screen.getByText("Draft · final grounding checks pending")).toBeTruthy();
+  pushCue(snapshot([card(1), card(2), card(3)]));
+  await screen.findByText("I tested approach 3.");
+  expect(screen.getByLabelText("Cue 3").getAttribute("data-current")).toBe("true");
+  expect(screen.getByLabelText("Cue 2").getAttribute("data-current")).toBe("false");
+});
+
+it("describes degraded understanding without provider terminology and retains usable cues", async () => {
+  vi.mocked(readCue).mockResolvedValue({ ...snapshot([card(1)]), notice: "Semantic understanding is unavailable. Local question detection remains active." });
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText("Conversation understanding is limited. Listening and question detection remain active.");
+  expect(screen.getByText("I tested approach 1.")).toBeTruthy();
+  expect(screen.queryByText(/Semantic understanding/)).toBeNull();
+});

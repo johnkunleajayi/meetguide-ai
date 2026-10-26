@@ -43,3 +43,18 @@ it("shows frozen technical interview language preferences in the compact review"
  expect(screen.getByText(/Technical\/Coding interview/).textContent).toContain("C#");
  expect(screen.getByText("Fixed for this session")).toBeTruthy();
 });
+
+
+it("keeps frozen preparation details expandable without offering an activation action", async () => {
+ vi.mocked(api.readPreparations).mockResolvedValue([{...first,purpose:"job_interview",technical_interview:true,coding_language:"python"}]);
+ render(<Harness locked />);
+ const purpose = await screen.findByText("Job Interview");
+ const details = purpose.closest("details")!;
+ expect(details.open).toBe(false);
+ fireEvent.click(purpose.closest("summary")!);
+ expect(details.open).toBe(true);
+ expect(screen.getByText("Fictional Alpha")).toBeTruthy();
+ expect(screen.getByText(/Technical\/Coding interview/).textContent).toContain("Python");
+ expect(api.activatePreparation).not.toHaveBeenCalled();
+ expect(screen.queryByLabelText("Change preparation")).toBeNull();
+});

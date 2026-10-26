@@ -29,7 +29,7 @@ it("updates partial text in place, finalizes, and preserves Them/You labels", as
 it("surfaces configuration/provider failures independently of audio capture", async () => {
   vi.mocked(readTranscript).mockResolvedValue({ ...partial, entries: [], streams: [{ source: "system", state: "error", message: "Set DEEPGRAM_API_KEY on the backend and restart the API.", droppedChunks: 0 }] });
   render(<TranscriptPanel authenticated />);
-  expect((await screen.findByRole("alert")).textContent).toContain("DEEPGRAM_API_KEY");
+  expect((await screen.findByRole("alert")).textContent).toContain("Live transcription is unavailable");
 });
 it("pauses following while reading older text and offers Follow latest", async () => {
   vi.mocked(readTranscript).mockResolvedValue(partial);
@@ -90,5 +90,5 @@ it("Remove preserves transcript updates and question understanding", async () =>
   await waitFor(() => expect(screen.queryByText("I tested the API.")).toBeNull());
   expect(screen.getByText("Question detected")).toBeTruthy();
   vi.mocked(readTranscript).mockResolvedValue({ ...detected, version: 2, entries: [{ ...partial.entries[0], text: "New speech after Remove" }] });
-  await screen.findByText("New speech after Remove"); expect(screen.getByText("Them · streaming")).toBeTruthy();
+  await screen.findByText("New speech after Remove"); expect(screen.getByText("Them · Listening")).toBeTruthy();
 });

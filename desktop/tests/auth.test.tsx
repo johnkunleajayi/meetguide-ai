@@ -83,6 +83,6 @@ it("does not forget a saved session when restore fails", async () => {
 it("explains why a browser-only preview cannot authenticate as a desktop", async () => {
   vi.mocked(auth.nativeAvailable).mockReturnValue(false);
   render(<DesktopAuth />);
-  expect(await screen.findByText("Open the Tauri desktop app to sign in securely.")).toBeTruthy();
+  expect(await screen.findByText("Open the installed MeetGuide desktop app to sign in securely.")).toBeTruthy();
   expect(auth.restoreAuth).not.toHaveBeenCalled();
 });

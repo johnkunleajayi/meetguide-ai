@@ -1,3 +1,4 @@
+import { DesktopIcon } from "./DesktopIcon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   privateDisplayAvailable, readPrivateDisplay, setPrivateDisplay, subscribePrivateDisplay,
@@ -61,18 +62,18 @@ export function PrivateDisplay() {
   const turnOff = status?.state === "on" || status?.state === "limited"
     || ((status?.state === "unknown" || !!error) && !!status?.requestedEnabled);
 
-  return <section className="private-display" aria-label="Private Display">
+  return <section className="private-display" data-state={error ? "unknown" : status?.state || "checking"} aria-label="Private Display">
     <div className="private-display-row">
-      <strong role="status" aria-live="polite">Private Display: {label}</strong>
+      <DesktopIcon name="shield" size={19} /><strong role="status" aria-live="polite">Private Display: {label}</strong>
       <div className="private-display-actions">
         <button type="button" disabled={pending || !status || unsupported}
           aria-label={`Turn ${turnOff ? "off" : "on"} Private Display`}
-          onClick={() => { void change(!turnOff); }}>{pending ? "Checking…" : turnOff ? "Turn off" : "Turn on"}</button>
+          onClick={() => { void change(!turnOff); }} className="private-display-toggle"><i aria-hidden="true" />{pending ? "Checking…" : turnOff ? "Turn off" : "Turn on"}</button>
         {!unsupported && <button type="button" disabled={pending}
           onClick={() => { void change(); }}>Check status</button>}
       </div>
     </div>
     {(error || status?.message) && <p role="status">{error || status?.message}</p>}
-    <p>Excludes this window from supported Windows captures. Screen-sharing tools may vary; verify before sharing.</p>
+    <details className="private-display-explanation"><summary>About screen sharing</summary><p>Excludes this window from supported Windows captures. Screen-sharing tools may vary; verify before sharing.</p></details>
   </section>;
 }
