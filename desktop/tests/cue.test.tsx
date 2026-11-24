@@ -193,3 +193,34 @@ it("describes degraded understanding without provider terminology and retains us
   expect(screen.getByText("I tested approach 1.")).toBeTruthy();
   expect(screen.queryByText(/Semantic understanding/)).toBeNull();
 });
+
+
+it("explains which speaker can trigger a cue while the active feed is empty", async () => {
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText("Live Cues respond to Them from System Audio. Your microphone adds context as You.");
+  expect(prepareCue).not.toHaveBeenCalled();
+});
+
+
+it("shows source question exactly and renders the concise opening with semantic talking points", async () => {
+  const original = "A customer wants to modernize their CRM, integrate it with existing enterprise systems, and improve security while keeping costs manageable. As a presales solution architect, how would you approach this requirement?";
+  vi.mocked(readCue).mockResolvedValue(snapshot([{...card(1),question:original, answer:"I'd clarify the business outcome before recommending a platform.\n\n• I'd map the integration interfaces and data ownership.\n• I'd compare cost, security and operational trade-offs.\n• I'd validate the preferred option in a small pilot."}]));
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText(original, {exact:true});
+  expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  expect(screen.getByText("I'd clarify the business outcome before recommending a platform.")).toBeTruthy();
+  expect(screen.getByText("Ready to speak")).toBeTruthy();
+});
+
+it("labels assembled source and clears an incomplete draft on failure", async () => {
+  const unfinished = "I would assess the customer's";
+  vi.mocked(readCue).mockResolvedValue(snapshot([{...card(1),sourceAssembled:true,status:"responding",answer:unfinished}]));
+  render(<LiveCue sessionId={1} active />);
+  await screen.findByText("Assembled from finalized interviewer segments");
+  expect(screen.getByText("Draft · final grounding checks pending")).toBeTruthy();
+  expect(screen.getByText(unfinished)).toBeTruthy();
+  expect(screen.queryByText("Ready to speak")).toBeNull();
+  pushCue(snapshot([{...card(1),status:"failed",answer:null,error:"Answer incomplete. Please retry."}]));
+  await screen.findByRole("button", {name:"Retry answer"});
+  expect(screen.queryByText(unfinished)).toBeNull();
+});

@@ -86,7 +86,7 @@ export function LiveCue({ sessionId, active }: { sessionId: number; active: bool
       const element = scroll.current;
       if (element) { following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48; if (following.current) setUnread(false); }
     }}>
-      {!current?.cards.length && <div className="cue-empty"><DesktopIcon name="audio" size={32} /><h3>Stay with the conversation.</h3><p>Listening for the next question.</p><span>Your guidance will appear here. You decide what to say.</span></div>}
+      {!current?.cards.length && <div className="cue-empty"><DesktopIcon name="audio" size={32} /><h3>Stay with the conversation.</h3><p>Listening for the next question.</p><span>Live Cues respond to Them from System Audio. Your microphone adds context as You.</span></div>}
       {current?.cards.map(card => <CueCard key={card.id} card={card} current={card.id === primaryCueId(current.cards)} removing={removing === card.id} onRemove={() => void remove(card.id)} onRetry={() => void retry(card.id)} />)}
     </div>
     {unread && <button className="audio-refresh" onClick={() => { following.current = true; setUnread(false); if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }}>New cue · View latest</button>}

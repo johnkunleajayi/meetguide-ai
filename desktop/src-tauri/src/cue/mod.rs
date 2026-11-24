@@ -42,6 +42,8 @@ fn input(event: &MeaningfulEvent) -> Option<CueInput> {
     }
     context.reverse();
     Some(CueInput {
+        source_question: None,
+        source_assembled: false,
         cue_kind: "conversation",
         coding_context: None,
         event_type: "question",

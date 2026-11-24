@@ -16,6 +16,7 @@ pub struct CueCard {
     pub cue_kind: &'static str,
     pub code_assist: Option<CodeAssist>,
     pub question: String,
+    pub source_assembled: bool,
     pub status: &'static str,
     pub answer: Option<String>,
     pub grounding: Option<String>,
@@ -234,20 +235,26 @@ impl CueService {
         if s.epoch != epoch || s.active.is_none() {
             return None;
         }
+        let visible_question = input
+            .source_question
+            .clone()
+            .unwrap_or_else(|| input.question.clone());
         timing.enqueued_at = Instant::now();
         timing.session_age_seconds = s.began.elapsed().as_secs_f64();
         if let Some(id) = target {
             let mut amended_code = None;
             // Removed cards stay removed; conversation state belongs elsewhere.
             if let Some(entry) = s.entries.iter_mut().find(|e| e.card.id == id) {
-                if entry.card.question != input.question {
+                if entry.input.question != input.question || entry.card.question != visible_question
+                {
                     timing.index = entry.timing.index;
                     timing.attempt = entry.timing.attempt;
                     timing.candidate.question_id = entry.card.question_id.clone();
                     emit(timing.record("queue_enriched"));
                     entry.timing = timing;
                     entry.version += 1;
-                    entry.card.question = input.question.clone();
+                    entry.card.question = visible_question.clone();
+                    entry.card.source_assembled = input.source_assembled;
                     if entry.input.cue_kind == "code" {
                         input.cue_kind = "code";
                         input.coding_context = entry.input.coding_context.clone();
@@ -304,7 +311,8 @@ impl CueService {
                 first_output_at_unix_ms: None,
                 cue_kind: input.cue_kind,
                 code_assist: None,
-                question: input.question.clone(),
+                question: visible_question,
+                source_assembled: input.source_assembled,
                 status: "queued",
                 answer: None,
                 grounding: None,

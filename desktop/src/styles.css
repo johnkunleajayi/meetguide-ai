@@ -280,3 +280,9 @@ footer { padding: 15px 30px; display: flex; justify-content: space-between; gap:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Compact spoken cues: opening first, then distinct points without clipping. */
+.cue-talking-points { padding-left: 20px; margin: 16px 0; max-width: 64ch; }
+.cue-talking-points li { padding-left: 3px; margin: 10px 0; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; }
+.live-cue[data-current="true"] .cue-talking-points li { font-size: 18px; }
+.live-cue-question { white-space: pre-wrap; }

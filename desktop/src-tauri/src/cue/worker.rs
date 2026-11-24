@@ -111,6 +111,12 @@ impl Router {
             && previous_card.is_some()
             && previous_request.is_some()
             && (linked || local_delta.is_none());
+        let source_question = if previous_card.is_some() && !continuation {
+            delta.clone()
+        } else {
+            c.text.clone()
+        };
+        let source_assembled = c.revision > 1 && source_question == c.text;
         let local = if coding.is_some() || (previous_card.is_some() && local_delta.is_some()) {
             local_delta.clone()
         } else {
@@ -244,7 +250,9 @@ impl Router {
             }
             if result.kind != "NOT_ACTIONABLE" && result.confidence >= 0.82 {
                 question = Some(result.normalized_request.clone());
-                if let Some(input) = payload(result.normalized_request, c.context.clone()) {
+                if let Some(mut input) = payload(result.normalized_request, c.context.clone()) {
+                    input.source_question = Some(source_question.clone());
+                    input.source_assembled = source_assembled;
                     card = service.enqueue_timed(
                         epoch,
                         if result.kind == "CONTINUATION" {

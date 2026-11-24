@@ -292,3 +292,26 @@ manually before live use of the updated preparation API. No provider configurati
 Private Display change or installer rebuild was performed. Use the development app for the
 combined later manual test in the backend README. Automated tests mock providers; generated
 code correctness and real-world recognition still require manual review.
+
+
+### Diagnosing a final transcript without a Live Cue
+
+System Audio is **Them** (interviewer/remote speaker) and can trigger Live Cues.
+Microphone is **You**: it contributes conversation context but intentionally does
+not trigger answers to your own speech, even if you ask a question. Both mode
+preserves this separation; it does not make microphone questions actionable.
+
+For a controlled local test, select System Audio or Both and play a prerecorded
+question through the same Windows playback endpoint selected in MeetGuide.
+Confirm **Them · Final**. Speaking the question into the microphone and seeing
+**You · Final** is not a Live Cue test. Do not enable self-triggering or remap You
+to Them for a real interview.
+
+In the native development terminal, match source/epoch/segment from
+`native_final_received` to `native_final_routing`. The new content-free record
+reports `self_speech_context_only`, `remote_speech_assembly_pending`,
+`inactive_session`, `duplicate_final`, or `oversized_final`. For eligible speech,
+after the existing 1.2-second quiet debounce expect `assembly_candidate`,
+`candidate_routing`, and cue queue/generation timings. These debug records do not
+contain speech, prompts, document text, keys, or answers. If an eligible final
+still does not queue, retain those records to identify the exact next gate.

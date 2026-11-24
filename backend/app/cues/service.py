@@ -19,6 +19,7 @@ GROUNDING_REASONS = {
     "Unsupported evidence",
     "Invalid spoken length",
     "Invalid paragraph",
+    "Incomplete spoken text",
     "Coaching is not an answer",
     "Personal history without evidence",
     "Unsupported technology",
@@ -152,6 +153,7 @@ async def generate_cue(
                 + (
                     "Return the required structured Code Assist fields and valid evidence IDs."
                     if coding
-                    else "Return the required natural spoken paragraphs and valid evidence IDs."
+                    else "Return a complete short opening, useful talking_points "
+                    "and valid evidence IDs."
                 )
             )

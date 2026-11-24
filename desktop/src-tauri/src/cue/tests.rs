@@ -2,6 +2,8 @@ use super::*;
 use crate::understanding::{candidate::Candidate, domain::ConversationTurn, UnderstandingEngine};
 fn request(question: &str) -> CueInput {
     CueInput {
+        source_question: None,
+        source_assembled: false,
         cue_kind: "conversation",
         coding_context: None,
         event_type: "question",
@@ -647,7 +649,17 @@ async fn an_actionable_label_for_a_clear_assembled_continuation_does_not_duplica
         .await;
     let cards = s.snapshot().unwrap().cards;
     assert_eq!(cards.len(), 1);
-    assert!(cards[0].question.contains("integration and challenges"));
+    assert_eq!(
+        cards[0].question,
+        "Tell me about the integration. And challenges you faced."
+    );
+    assert!(cards[0].source_assembled);
+    assert!(s
+        .next(epoch)
+        .unwrap()
+        .input
+        .question
+        .contains("integration and challenges"));
 }
 
 #[test]
@@ -1230,5 +1242,147 @@ fn openai_intent_failure_keeps_conservative_native_fallback() {
                 }
             }
         }
+    });
+}
+
+#[test]
+fn final_source_gate_to_fifo_stream_and_published_ready_card() {
+    tauri::async_runtime::block_on(async {
+        use crate::transcription::{Source, TranscriptStore};
+        use std::time::Duration;
+        let mut store = TranscriptStore::default();
+        store.reset(&[Source::System, Source::Microphone]);
+        let (s, epoch) = service();
+        let updates = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let sink = updates.clone();
+        s.set_publisher(std::sync::Arc::new(move |snapshot| {
+            sink.lock().unwrap().push(snapshot);
+        }));
+        // The supplied real trace is a microphone final: context, never a cue trigger.
+        store.event(
+            Source::Microphone,
+            1,
+            39046,
+            39046,
+            "Tell me about yourself.",
+            true,
+        );
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        store.tick_understanding();
+        assert!(store.take_candidates().is_empty());
+        assert!(s.snapshot().unwrap().cards.is_empty());
+        // A recording played through the selected playback device is Them.
+        store.event(
+            Source::System,
+            1,
+            39046,
+            40000,
+            "Tell me about yourself.",
+            true,
+        );
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        store.tick_understanding();
+        let candidates = store.take_candidates();
+        assert_eq!(candidates.len(), 1);
+        let mut router = worker::Router::default();
+        for c in candidates {
+            router
+                .process(c, &s, epoch, |_| async {
+                    panic!("Confident interview request must remain local");
+                    #[allow(unreachable_code)]
+                    Err("unexpected semantic call")
+                })
+                .await;
+        }
+        let job = s.next(epoch).expect("system question enters FIFO");
+        assert_eq!(job.input.question, "Tell me about yourself.");
+        assert_eq!(job.input.speaker, "them");
+        assert!(job.input.context.iter().any(|turn| turn.speaker == "you"));
+        let id = job.id;
+        s.progress(
+            epoch,
+            &job,
+            Some("I would describe my relevant experience."),
+        );
+        assert_eq!(
+            updates.lock().unwrap().last().unwrap().cards[0].status,
+            "responding"
+        );
+        // Provider execution is a fake here; no credentials or network involved.
+        s.finish(epoch, job, Ok(reply()));
+        let published = updates.lock().unwrap().last().unwrap().clone();
+        let wire = serde_json::to_value(published).unwrap();
+        assert_eq!(wire["sessionId"], 1);
+        assert_eq!(wire["cards"][0]["id"], id);
+        assert_eq!(wire["cards"][0]["status"], "ready");
+        assert_eq!(wire["cards"][0]["answer"], reply().answer);
+        assert!(s.next(epoch).is_none());
+        store.event(
+            Source::System,
+            1,
+            39046,
+            40000,
+            "Tell me about yourself.",
+            true,
+        );
+        store.tick_understanding();
+        assert!(store.take_candidates().is_empty());
+    });
+}
+
+#[test]
+fn semantic_normalization_never_replaces_the_visible_source_question() {
+    tauri::async_runtime::block_on(async {
+        let original = "A customer wants to modernize their CRM, integrate it with existing enterprise systems, and improve security while keeping costs manageable. As a presales solution architect, how would you approach this requirement?";
+        let normalized =
+            "How would you modernize the customer's CRM and manage integration, security and cost?";
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        router
+            .process(candidate(1, original, None, 1), &s, epoch, |_| async {
+                Ok(intent::IntentResult {
+                    kind: "ACTIONABLE_REQUEST".into(),
+                    normalized_request: normalized.into(),
+                    confidence: 0.95,
+                })
+            })
+            .await;
+        assert_eq!(s.snapshot().unwrap().cards[0].question, original);
+        let job = s.next(epoch).unwrap();
+        assert_eq!(job.input.question, normalized);
+        let wire = serde_json::to_value(&job.input).unwrap();
+        assert!(wire.get("source_question").is_none());
+        s.finish(epoch, job, Ok(reply()));
+        assert_eq!(s.snapshot().unwrap().cards[0].question, original);
+    });
+}
+
+#[test]
+fn assembled_question_retains_source_punctuation_and_duplicate_finals_do_not_replace_it() {
+    tauri::async_runtime::block_on(async {
+        let source = "Tell me about an integration you worked on. And challenges you faced.";
+        let normalized = "Tell me about an integration you worked on and challenges you faced.";
+        let (s, epoch) = service();
+        let mut router = worker::Router::default();
+        router
+            .process(
+                candidate(1, source, Some(normalized), 2),
+                &s,
+                epoch,
+                unavailable,
+            )
+            .await;
+        assert_eq!(s.snapshot().unwrap().cards[0].question, source);
+        assert!(s.snapshot().unwrap().cards[0].source_assembled);
+        router
+            .process(
+                candidate(1, source, Some(normalized), 2),
+                &s,
+                epoch,
+                unavailable,
+            )
+            .await;
+        assert_eq!(s.snapshot().unwrap().cards.len(), 1);
+        assert_eq!(s.next(epoch).unwrap().input.question, normalized);
     });
 }

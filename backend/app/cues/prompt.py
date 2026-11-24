@@ -7,11 +7,18 @@ from app.cues.grounding import grounding_issue
 HONEST_BRIDGE = "I can't point to a confirmed example with that specific system."
 
 SYSTEM = """You write a ready-to-speak Live Cue for the person answering a live question.
-Return JSON with paragraphs (2 or 3 short paragraph strings) and evidence_ids (IDs of
-retrieved excerpts actually used, or an empty list for a general approach).
-Write natural first-person conversational English, normally 85-150 words, 30-60 seconds spoken.
-Directly answer the question. No coaching, bullets, headings, essay introductions/conclusions,
-suggested questions or citations inside spoken text. Keep 60-180 words total.
+Return JSON with paragraphs (a short speakable opening, ideally 1-2 sentences),
+talking_points (3-5 succinct speakable points when useful, otherwise an empty list),
+and evidence_ids (retrieved excerpts actually used, or an empty list for a general approach).
+Aim for 65-110 words total; a simple question may need only 20-60 words. Never pad an answer.
+Directly answer in natural first-person conversational English. Give useful specifics,
+not generic coaching or a list of instructions the user still has to turn into an answer.
+Adapt to the request: architecture answers address relevant requirements, options,
+trade-offs and validation; behavioral answers use a supported example and its documented
+result, acknowledging gaps. Simple questions do not need an artificial five-step process.
+Each point should be short and independently speakable. Use complete sentences ending
+with punctuation. No bullet markers in JSON strings, headings, essay introductions,
+conclusions, suggested questions or spoken citations. Keep each string on one line.
 
 SESSION:
 The session_preparation object describes the user's purpose and objective, not verified facts.
@@ -19,6 +26,8 @@ Use one answer style adapted to that purpose: candidate for job_interview, repre
 for sales_meeting, account/project collaborator for client_meeting, colleague for
 internal_meeting, presenter for presentation, or the stated objective for other purposes.
 Do not assume an interview or use personal career history unless relevant to this session.
+Choose technologies from the question and its constraints, not merely because a document
+mentions them. Cover broader enterprise responsibilities when the question calls for them.
 Objective/conversation may establish the topic but do not prove company/product/client facts.
 Never invent product capabilities, company/client/project facts or the user's identity.
 Only selected document evidence supports factual claims. If facts are missing, acknowledge
@@ -64,12 +73,17 @@ def user_prompt(payload: CueInput, evidence: list[Evidence]) -> str:
 
 def validate_draft(draft: Draft, evidence: list[Evidence]) -> CueResult:
     paragraphs = [paragraph.strip() for paragraph in draft.paragraphs]
+    points = [point.strip() for point in draft.talking_points]
     answer = "\n\n".join(paragraphs)
-    if not 60 <= len(answer.split()) <= 180 or len(answer) > 2400:
+    if points:
+        answer += "\n\n" + "\n".join("• " + point for point in points)
+    if not 20 <= len(answer.split()) <= 180 or len(answer) > 2400:
         raise ValueError("Invalid spoken length")
-    for paragraph in paragraphs:
+    for paragraph in paragraphs + points:
         if not paragraph or "\n" in paragraph or re.match(r"^\s*([-*#•]|\d+[.)])", paragraph):
             raise ValueError("Invalid paragraph")
+        if not re.search(r"[.!?][\"’”\')]*$", paragraph):
+            raise ValueError("Incomplete spoken text")
     if re.search(
         r"\b(you should|you could|mention your|explain your|describe your)\b", answer, re.I
     ):

@@ -145,7 +145,7 @@ def test_gemini_normal_path_is_one_http_request_without_claim_or_verdict_schema(
     def handle(request):
         requests.append(request)
         schema = json.loads(request.content)["generationConfig"]["responseJsonSchema"]
-        assert set(schema["properties"]) == {"paragraphs", "evidence_ids"}
+        assert set(schema["properties"]) == {"paragraphs", "talking_points", "evidence_ids"}
         return httpx.Response(
             200,
             json={

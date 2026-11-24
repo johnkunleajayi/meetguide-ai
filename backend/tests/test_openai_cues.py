@@ -192,7 +192,7 @@ def test_openai_partial_precedes_completion_with_same_prompt_schema_and_validati
             schema = body["text"]["format"]["schema"]
             assert body["text"]["format"]["strict"] is True
             assert schema["additionalProperties"] is False
-            assert set(schema["required"]) == {"paragraphs", "evidence_ids"}
+            assert set(schema["required"]) == {"paragraphs", "talking_points", "evidence_ids"}
             return httpx.Response(200, stream=Paused())
 
         emitted = []

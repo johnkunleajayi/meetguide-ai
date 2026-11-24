@@ -35,6 +35,11 @@ impl CodeAssist {
 }
 #[derive(Clone, Serialize)]
 pub struct CueInput {
+    // UI provenance only. Never replace the internal normalized generation request.
+    #[serde(skip)]
+    pub source_question: Option<String>,
+    #[serde(skip)]
+    pub source_assembled: bool,
     pub cue_kind: &'static str,
     pub coding_context: Option<CodingContext>,
     #[serde(rename = "type")]

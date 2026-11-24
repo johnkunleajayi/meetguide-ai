@@ -136,6 +136,23 @@ impl TranscriptStore {
             }
         }
     }
+    // Content-free source disposition closes the gap between relay receipt and
+    // candidate_routing. Microphone speech intentionally enriches context only.
+    fn final_routing(
+        &self,
+        source: Source,
+        epoch: u64,
+        segment: u64,
+        reason: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "stage": "native_final_routing", "source": source.wire(),
+            "session_id": self.snapshot.session_id, "epoch": epoch, "segment": segment,
+            "understanding_active": self.snapshot.understanding.active,
+            "trigger_eligible": reason == "remote_speech_assembly_pending", "reason": reason,
+            "at_unix_ms": crate::timing::unix_ms()
+        })
+    }
     pub fn event(
         &mut self,
         source: Source,
@@ -145,16 +162,28 @@ impl TranscriptStore {
         text: &str,
         final_text: bool,
     ) {
-        if text.len() > 16384 {
-            return;
-        }
-        // A late interim/duplicate for an immutable final must not block understanding.
-        if self.snapshot.entries.iter().any(|entry| {
+        let duplicate = self.snapshot.entries.iter().any(|entry| {
             entry.source == source
                 && entry.epoch == epoch
                 && entry.segment == segment
                 && entry.final_text
-        }) {
+        });
+        if final_text {
+            let reason = if text.len() > 16384 {
+                "oversized_final"
+            } else if duplicate {
+                "duplicate_final"
+            } else if !self.snapshot.understanding.active {
+                "inactive_session"
+            } else if source == Source::Microphone {
+                "self_speech_context_only"
+            } else {
+                "remote_speech_assembly_pending"
+            };
+            crate::timing::emit(self.final_routing(source, epoch, segment, reason));
+        }
+        // A late interim/duplicate for an immutable final must not block understanding.
+        if text.len() > 16384 || duplicate {
             return;
         }
         let now = self.clock.elapsed().as_millis() as u64;
@@ -324,5 +353,94 @@ mod spoken_turn_regression {
         let version = store.snapshot.version;
         store.tick_understanding();
         assert_eq!(store.snapshot.version, version);
+    }
+}
+
+#[cfg(test)]
+mod source_routing_regression {
+    use super::*;
+
+    #[test]
+    fn microphone_question_is_context_only_but_same_system_question_is_actionable_once() {
+        for sources in [
+            vec![Source::Microphone],
+            vec![Source::System, Source::Microphone],
+        ] {
+            let mut store = TranscriptStore::default();
+            store.reset(&sources);
+            store.event(
+                Source::Microphone,
+                1,
+                39046,
+                39046,
+                "Tell me about yourself.",
+                true,
+            );
+            store.clock = Instant::now() - std::time::Duration::from_millis(1300);
+            store.tick_understanding();
+            assert!(store.take_candidates().is_empty());
+            assert!(store.snapshot.understanding.events.is_empty());
+            assert!(store.snapshot.understanding.turns[0].speaker == Speaker::You);
+        }
+        for sources in [
+            vec![Source::System],
+            vec![Source::System, Source::Microphone],
+        ] {
+            let mut store = TranscriptStore::default();
+            store.reset(&sources);
+            store.event(
+                Source::System,
+                1,
+                39046,
+                39046,
+                "Tell me about yourself.",
+                true,
+            );
+            store.clock = Instant::now() - std::time::Duration::from_millis(1300);
+            store.tick_understanding();
+            let candidates = store.take_candidates();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(
+                candidates[0].local.as_deref(),
+                Some("Tell me about yourself.")
+            );
+            assert_eq!(store.snapshot.understanding.events.len(), 1);
+            store.event(
+                Source::System,
+                1,
+                39046,
+                39046,
+                "Tell me about yourself.",
+                true,
+            );
+            store.tick_understanding();
+            assert!(store.take_candidates().is_empty());
+        }
+    }
+
+    #[test]
+    fn final_routing_diagnostics_identify_source_and_session_without_private_content() {
+        let mut store = TranscriptStore::default();
+        store.reset(&[Source::Microphone]);
+        let record = store.final_routing(Source::Microphone, 1, 39046, "self_speech_context_only");
+        assert_eq!(record["trigger_eligible"], false);
+        assert_eq!(record["understanding_active"], true);
+        assert_eq!(record["source"], "microphone");
+        assert_eq!(record["segment"], 39046);
+        assert_eq!(record.as_object().unwrap().len(), 9);
+        assert!(record.as_object().unwrap().keys().all(|key| !matches!(
+            key.as_str(),
+            "text" | "question" | "answer" | "token" | "prompt"
+        )));
+        assert_eq!(
+            store.final_routing(Source::System, 1, 1, "remote_speech_assembly_pending")
+                ["trigger_eligible"],
+            true
+        );
+        store.stop_understanding();
+        assert_eq!(
+            store.final_routing(Source::System, 1, 2, "inactive_session")["understanding_active"],
+            false
+        );
     }
 }

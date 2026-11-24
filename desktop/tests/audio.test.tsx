@@ -139,3 +139,12 @@ it("keeps Both source identity clear and secondary devices available before star
   expect(screen.queryByText("Change preparation")).toBeNull();
   expect(screen.getByText("Fixed for this session")).toBeTruthy();
 });
+
+
+it("explains microphone context-only routing without starting a session", async () => {
+  render(<AudioSession authenticated />); await ready();
+  fireEvent.click(screen.getByRole("radio", { name: "Microphone" }));
+  expect(screen.getByText(/Your microphone is You and adds conversation context/)).toBeTruthy();
+  expect(screen.getByText(/Use System Audio or Both for interview questions/)).toBeTruthy();
+  expect(audio.startAudio).not.toHaveBeenCalled();
+});

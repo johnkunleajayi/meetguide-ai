@@ -51,7 +51,8 @@ class Evidence(BaseModel):
 
 class Draft(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
-    paragraphs: list[str] = Field(min_length=2, max_length=3, repr=False)
+    paragraphs: list[str] = Field(min_length=1, max_length=3, repr=False)
+    talking_points: list[str] = Field(default_factory=list, max_length=5, repr=False)
     evidence_ids: list[str] = Field(default_factory=list, max_length=3)
 
 

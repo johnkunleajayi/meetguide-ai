@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 export interface CodeAssist { language: string; approach: string; code: string; complexity: string | null; what_to_say: string }
 export interface CueCard {
+  sourceAssembled?: boolean;
   cueKind?: "conversation" | "code"; codeAssist?: CodeAssist | null;
   attempt?: number; questionId?: string; readyAtUnixMs?: number | null; firstOutputAtUnixMs?: number | null;
   id: number; question: string; status: "queued" | "generating" | "responding" | "ready" | "failed";
