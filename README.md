@@ -1,6 +1,6 @@
 # MeetGuide AI
 
-**Your real-time AI meeting assistant.**
+
 
 ## Architecture
 
